@@ -1,0 +1,2 @@
+libc/stdlib/libc_a-wcstoll_r.o: \
+ ../../newlib/newlib/libc/stdlib/wcstoll_r.c

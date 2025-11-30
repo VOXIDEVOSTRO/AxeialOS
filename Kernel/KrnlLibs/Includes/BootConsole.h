@@ -1,6 +1,7 @@
 #pragma once
 
 #include <AllTypes.h>
+#include <KExports.h>
 #include <KrnFont.h>
 
 typedef struct
@@ -26,3 +27,5 @@ void PutPrint(const char* __String__);
 void SetBGColor(uint32_t __FG__, uint32_t __BG__);
 void SetCursor(uint32_t __CurX__, uint32_t __CurY__);
 void ScrollConsole(void);
+
+KEXPORT(PutChar);

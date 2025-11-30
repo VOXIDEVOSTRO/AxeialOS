@@ -1,0 +1,15 @@
+libm/fenv/libm_a-fe_dfl_env.o: ../../newlib/newlib/libm/fenv/fe_dfl_env.c \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/fenv.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/x86_64-elf/newlib/targ-include/sys/fenv.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/cdefs.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_default_types.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/features.h \
+ _newlib_version.h \
+ /home/adity/cross-compiler/x86_64-elf/lib/gcc/x86_64-elf/13.2.0/include/stddef.h
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/fenv.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/x86_64-elf/newlib/targ-include/sys/fenv.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/cdefs.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_default_types.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/features.h:
+_newlib_version.h:
+/home/adity/cross-compiler/x86_64-elf/lib/gcc/x86_64-elf/13.2.0/include/stddef.h:

@@ -88,6 +88,8 @@ typedef struct
 
 } VirtualMemoryManager;
 
+extern VirtualMemoryManager Vmm;
+
 void                InitializeVmm(void);
 VirtualMemorySpace* CreateVirtualSpace(void);
 void                DestroyVirtualSpace(VirtualMemorySpace* __Space__);

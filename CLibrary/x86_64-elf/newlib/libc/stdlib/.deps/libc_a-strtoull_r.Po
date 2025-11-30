@@ -1,0 +1,2 @@
+libc/stdlib/libc_a-strtoull_r.o: \
+ ../../newlib/newlib/libc/stdlib/strtoull_r.c

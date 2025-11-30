@@ -1,0 +1,4 @@
+libc/stdio/libc_a-sfputs_r.o: ../../newlib/newlib/libc/stdio/sfputs_r.c \
+ newlib.h _newlib_version.h
+newlib.h:
+_newlib_version.h:

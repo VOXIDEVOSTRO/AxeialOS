@@ -1,0 +1,65 @@
+libm/common/libm_a-s_infinity.o: \
+ ../../newlib/newlib/libm/common/s_infinity.c \
+ ../../newlib/newlib/libm/common/fdlibm.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/math.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/reent.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_ansi.h \
+ newlib.h _newlib_version.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/config.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/ieeefp.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/features.h \
+ /home/adity/cross-compiler/x86_64-elf/lib/gcc/x86_64-elf/13.2.0/include/stddef.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/cdefs.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_default_types.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_types.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_types.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/lock.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/assert.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_ansi.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/types.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_stdint.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/endian.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_endian.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/select.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_sigset.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_timeval.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/timespec.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_timespec.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_pthreadtypes.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/sched.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/types.h \
+ ../../newlib/newlib/libm/common/math_config.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/stdint.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_intsup.h
+../../newlib/newlib/libm/common/fdlibm.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/math.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/reent.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_ansi.h:
+newlib.h:
+_newlib_version.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/config.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/ieeefp.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/features.h:
+/home/adity/cross-compiler/x86_64-elf/lib/gcc/x86_64-elf/13.2.0/include/stddef.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/cdefs.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_default_types.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_types.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_types.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/lock.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/assert.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_ansi.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/types.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_stdint.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/endian.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_endian.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/select.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_sigset.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_timeval.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/timespec.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_timespec.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_pthreadtypes.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/sched.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/types.h:
+../../newlib/newlib/libm/common/math_config.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/stdint.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_intsup.h:

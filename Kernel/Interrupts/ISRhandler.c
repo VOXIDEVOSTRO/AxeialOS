@@ -193,9 +193,18 @@ IsrHandler(InterruptFrame* __Frame__)
 
     /*Display per-CPU descriptor table information for SMP debugging*/
     PerCpuData* CpuData = GetPerCpuData(CurrentCpu);
-    KrnPrintf("\nDESCRIPTOR TABLES (CPU %u):\n", CurrentCpu);
-    KrnPrintf("  GDT Base: 0x%016lx  Limit: %u\n", CpuData->GdtPtr.Base, CpuData->GdtPtr.Limit);
-    KrnPrintf("  IDT Base: 0x%016lx  Limit: %u\n", CpuData->IdtPtr.Base, CpuData->IdtPtr.Limit);
+    if (CurrentCpu != 0)
+    {
+        KrnPrintf("\nDESCRIPTOR TABLES (CPU %u):\n", CurrentCpu);
+        KrnPrintf("  GDT Base: 0x%016lx  Limit: %u\n", CpuData->GdtPtr.Base, CpuData->GdtPtr.Limit);
+        KrnPrintf("  IDT Base: 0x%016lx  Limit: %u\n", CpuData->IdtPtr.Base, CpuData->IdtPtr.Limit);
+    }
+    else
+    {
+        KrnPrintf("\nDESCRIPTOR TABLES (CPU %u):\n", CurrentCpu);
+        KrnPrintf("  GDT Base: 0x%016lx  Limit: %u\n", GdtPtr.Base, GdtPtr.Limit);
+        KrnPrintf("  IDT Base: 0x%016lx  Limit: %u\n", IdtPtr.Base, IdtPtr.Limit);
+    }
 
     KrnPrintf("\n");
     KrnPrintf("Fix your shitty code idiot.\n");

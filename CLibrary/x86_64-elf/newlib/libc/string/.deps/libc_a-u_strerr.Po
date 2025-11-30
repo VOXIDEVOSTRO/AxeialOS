@@ -1,0 +1,12 @@
+libc/string/libc_a-u_strerr.o: ../../newlib/newlib/libc/string/u_strerr.c \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_ansi.h \
+ newlib.h _newlib_version.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/config.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/ieeefp.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/features.h
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_ansi.h:
+newlib.h:
+_newlib_version.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/config.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/ieeefp.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/features.h:

@@ -1,0 +1,1 @@
+libc/stdlib/libc_a-environ.o: ../../newlib/newlib/libc/stdlib/environ.c

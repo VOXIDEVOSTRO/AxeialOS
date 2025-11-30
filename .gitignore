@@ -7,3 +7,11 @@ debug.log
 regnexhelp.md
 qemu.log
 .clang-format
+lol.txt
+lol2.txt
+lol3.txt
+*.o
+*.obj
+*.log
+*.tmp
+*.swp

@@ -1,0 +1,34 @@
+libm/common/libm_a-fabsl.o: ../../newlib/newlib/libm/common/fabsl.c \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/math.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/reent.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_ansi.h \
+ newlib.h _newlib_version.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/config.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/ieeefp.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/features.h \
+ /home/adity/cross-compiler/x86_64-elf/lib/gcc/x86_64-elf/13.2.0/include/stddef.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/cdefs.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_default_types.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_types.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_types.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/lock.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/assert.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_ansi.h \
+ ../../newlib/newlib/libm/common/local.h
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/math.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/reent.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_ansi.h:
+newlib.h:
+_newlib_version.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/config.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/ieeefp.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/features.h:
+/home/adity/cross-compiler/x86_64-elf/lib/gcc/x86_64-elf/13.2.0/include/stddef.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/cdefs.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_default_types.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_types.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_types.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/lock.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/assert.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_ansi.h:
+../../newlib/newlib/libm/common/local.h:

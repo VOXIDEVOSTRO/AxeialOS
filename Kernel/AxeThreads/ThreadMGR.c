@@ -161,7 +161,7 @@ CreateThread(ThreadType     __Type__,
 
     PDebug("CreateThread: Initializing thread context\n");
     NewThread->Context.Rip    = (uint64_t)__EntryPoint__;
-    NewThread->Context.Rsp    = NewThread->KernelStack - 16;
+    NewThread->Context.Rsp    = (NewThread->KernelStack & ~0xFULL) - 16;
     NewThread->Context.Rflags = 0x202;
     if (__Type__ == ThreadTypeKernel)
     {
@@ -172,7 +172,7 @@ CreateThread(ThreadType     __Type__,
     {
         NewThread->Context.Cs  = UserCodeSelector;
         NewThread->Context.Ss  = UserDataSelector;
-        NewThread->Context.Rsp = NewThread->UserStack - 16;
+        NewThread->Context.Rsp = (NewThread->UserStack & ~0xFULL) - 16;
     }
 
     NewThread->Context.Ds  = NewThread->Context.Ss;
@@ -196,7 +196,7 @@ CreateThread(ThreadType     __Type__,
     NewThread->WaitReason = WaitReasonNone;
 
     NewThread->PageDirectory = 0;
-    NewThread->VirtualBase   = 0x400000;
+    NewThread->VirtualBase   = UserVirtualBase;
     NewThread->MemoryUsage   = (NewThread->StackSize * 2) / 1024;
     PDebug("CreateThread: Scheduling and memory fields initialized\n");
 
@@ -403,7 +403,10 @@ ThreadExecute(Thread* __ThreadPtr__)
     uint32_t TargetCpu = CalculateOptimalCpu(__ThreadPtr__);
 
     /* Update thread's last CPU assignment */
+    AcquireSpinLock(&ThreadListLock);
     __ThreadPtr__->LastCpu = TargetCpu;
+    __ThreadPtr__->State   = ThreadStateReady;
+    ReleaseSpinLock(&ThreadListLock);
 
     /* Enqueue thread in target CPU’s ready queue */
     AddThreadToReadyQueue(TargetCpu, __ThreadPtr__);
@@ -431,7 +434,10 @@ ThreadExecuteMultiple(Thread** __ThreadArray__, uint32_t __ThreadCount__)
         }
 
         uint32_t TargetCpu = CalculateOptimalCpu(ThreadPtr);
+        AcquireSpinLock(&ThreadListLock);
         ThreadPtr->LastCpu = TargetCpu;
+        ThreadPtr->State   = ThreadStateReady;
+        ReleaseSpinLock(&ThreadListLock);
         AddThreadToReadyQueue(TargetCpu, ThreadPtr);
 
         PDebug("ThreadExecuteMultiple: Thread %u \u2192 CPU %u (Load: %u)\n",
@@ -548,13 +554,8 @@ GetSystemLoadStats(uint32_t* __TotalThreads__,
 void
 ThreadYield(void)
 {
-    uint32_t CpuId   = GetCurrentCpuId();
-    Thread*  Current = GetCurrentThread(CpuId);
-
-    if (Current && Current->State == ThreadStateRunning)
-    {
-        __asm__ volatile("int $0x20");
-    }
+    /*Software Interrupt*/
+    __asm__ volatile("int $0x20");
 }
 
 void
@@ -601,24 +602,8 @@ ThreadExit(uint32_t __ExitCode__)
 
     PInfo("Thread %u exiting with code %u\n", Current->ThreadId, __ExitCode__);
 
-    /* Remove from ready queue; scheduler will handle */
-    CpuScheduler* Scheduler = &CpuSchedulers[CpuId];
-    Thread*       Prev      = NULL;
-    Thread*       Curr      = Scheduler->ReadyQueue;
-
-    RemoveThreadFromReadyQueue(CpuId); /* Removes current thread */
-
-    CpuSchedulers[CpuId].ThreadCount--;
-    SetCurrentThread(CpuId, CpuSchedulers[CpuId].IdleThread); /* Switch to idle */
-
-    /* Add current thread to zombie queue for deferred cleanup */
     AddThreadToZombieQueue(CpuId, Current);
-
-    /* Halt indefinitely as thread is no longer active */
-    for (;;)
-    {
-        __asm__ volatile("hlt");
-    }
+    __asm__ volatile("int $0x20");
 }
 
 Thread*

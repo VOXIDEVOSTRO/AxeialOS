@@ -1,0 +1,24 @@
+libc/ctype/libc_a-wctype_l.o: ../../newlib/newlib/libc/ctype/wctype_l.c \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_ansi.h \
+ newlib.h _newlib_version.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/config.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/ieeefp.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/features.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/wctype.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_types.h \
+ /home/adity/cross-compiler/x86_64-elf/lib/gcc/x86_64-elf/13.2.0/include/stddef.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_types.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_default_types.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_locale.h
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_ansi.h:
+newlib.h:
+_newlib_version.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/config.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/ieeefp.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/features.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/wctype.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_types.h:
+/home/adity/cross-compiler/x86_64-elf/lib/gcc/x86_64-elf/13.2.0/include/stddef.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_types.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/machine/_default_types.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/sys/_locale.h:

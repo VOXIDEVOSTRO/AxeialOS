@@ -1,0 +1,4 @@
+libm/machine/x86_64/libm_a-fesetexceptflag.o: \
+ ../../newlib/newlib/libm/machine/x86_64/fesetexceptflag.c \
+ ../../newlib/newlib/libm/machine/x86_64/../../fenv/fenv_stub.c
+../../newlib/newlib/libm/machine/x86_64/../../fenv/fenv_stub.c:

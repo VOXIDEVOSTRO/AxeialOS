@@ -1,0 +1,4 @@
+libm/machine/x86_64/libm_a-feraiseexcept.o: \
+ ../../newlib/newlib/libm/machine/x86_64/feraiseexcept.c \
+ ../../newlib/newlib/libm/machine/x86_64/../../fenv/fenv_stub.c
+../../newlib/newlib/libm/machine/x86_64/../../fenv/fenv_stub.c:

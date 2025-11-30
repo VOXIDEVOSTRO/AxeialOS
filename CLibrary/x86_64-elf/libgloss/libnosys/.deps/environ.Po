@@ -1,0 +1,1 @@
+libnosys/environ.o: ../../newlib/libgloss/libnosys/environ.c

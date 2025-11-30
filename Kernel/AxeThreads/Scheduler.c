@@ -27,23 +27,19 @@ AddThreadToReadyQueue(uint32_t __CpuId__, Thread* __ThreadPtr__)
 
     CpuScheduler* Scheduler = &CpuSchedulers[__CpuId__];
 
-    /* Set thread state and last CPU in an atomic operation */
     __atomic_store_n(&__ThreadPtr__->State, ThreadStateReady, __ATOMIC_SEQ_CST);
     __atomic_store_n(&__ThreadPtr__->LastCpu, __CpuId__, __ATOMIC_SEQ_CST);
     __ThreadPtr__->Next = NULL;
     __ThreadPtr__->Prev = NULL;
 
-    /* Acquire scheduler spinlock before altering the ready queue */
     AcquireSpinLock(&Scheduler->SchedulerLock);
 
-    /* If the ready queue is empty, add thread as the first element */
     if (!Scheduler->ReadyQueue)
     {
         Scheduler->ReadyQueue = __ThreadPtr__;
     }
     else
     {
-        /* Otherwise, walk the list to the tail and append the thread */
         Thread* Tail = Scheduler->ReadyQueue;
         while (Tail->Next)
         {
@@ -53,11 +49,10 @@ AddThreadToReadyQueue(uint32_t __CpuId__, Thread* __ThreadPtr__)
         __ThreadPtr__->Prev = Tail;
     }
 
-    /* Release the spinlock after modification */
-    ReleaseSpinLock(&Scheduler->SchedulerLock);
+    /* increment while still holding the lock */
+    Scheduler->ReadyCount++;
 
-    /* Atomically increment the count of ready threads */
-    __atomic_fetch_add(&Scheduler->ReadyCount, 1, __ATOMIC_SEQ_CST);
+    ReleaseSpinLock(&Scheduler->SchedulerLock);
 }
 
 Thread*
@@ -69,36 +64,32 @@ RemoveThreadFromReadyQueue(uint32_t __CpuId__)
     }
 
     CpuScheduler* Scheduler = &CpuSchedulers[__CpuId__];
-    Thread*       ThreadPtr = NULL;
 
-    /* Acquire spinlock to modify ready queue safely */
     AcquireSpinLock(&Scheduler->SchedulerLock);
 
-    ThreadPtr = Scheduler->ReadyQueue;
-
-    /* If queue is empty, release lock and return NULL */
+    Thread* ThreadPtr = Scheduler->ReadyQueue;
     if (!ThreadPtr)
     {
         ReleaseSpinLock(&Scheduler->SchedulerLock);
         return NULL;
     }
 
-    /* Remove from the head of the queue */
     Scheduler->ReadyQueue = ThreadPtr->Next;
     if (ThreadPtr->Next)
     {
         ThreadPtr->Next->Prev = NULL;
     }
 
-    /* Clear thread linkage pointers */
     ThreadPtr->Next = NULL;
     ThreadPtr->Prev = NULL;
 
-    /* Release the spinlock after modification */
-    ReleaseSpinLock(&Scheduler->SchedulerLock);
+    /* decrement while still holding the lock */
+    if (Scheduler->ReadyCount > 0)
+    {
+        Scheduler->ReadyCount--;
+    }
 
-    /* Atomically decrement the ready count */
-    __atomic_fetch_sub(&Scheduler->ReadyCount, 1, __ATOMIC_SEQ_CST);
+    ReleaseSpinLock(&Scheduler->SchedulerLock);
     return ThreadPtr;
 }
 
@@ -244,21 +235,18 @@ WakeupSleepingThreads(uint32_t __CpuId__)
     CpuScheduler* Scheduler    = &CpuSchedulers[__CpuId__];
     uint64_t      CurrentTicks = GetSystemTicks();
 
-    /* Lock sleeping queue for safe traversal and modification */
     AcquireSpinLock(&Scheduler->SchedulerLock);
 
     Thread* Current = Scheduler->SleepingQueue;
     Thread* Prev    = NULL;
 
-    /* Traverse sleeping queue */
     while (Current)
     {
         Thread* Next = Current->Next;
 
-        /* Check if thread's wakeup time reached or passed */
         if (__atomic_load_n(&Current->WakeupTime, __ATOMIC_SEQ_CST) <= CurrentTicks)
         {
-            /* Remove thread from sleeping queue */
+            /* unlink from sleeping */
             if (Prev)
             {
                 Prev->Next = Next;
@@ -268,29 +256,38 @@ WakeupSleepingThreads(uint32_t __CpuId__)
                 Scheduler->SleepingQueue = Next;
             }
 
-            /* Clear wait reason and wakeup time atomically */
             __atomic_store_n(&Current->WaitReason, WaitReasonNone, __ATOMIC_SEQ_CST);
             __atomic_store_n(&Current->WakeupTime, 0, __ATOMIC_SEQ_CST);
+            Current->State = ThreadStateReady;
+            Current->Prev  = NULL;
+            Current->Next  = NULL;
 
-            /* Release lock temporarily to safely add to ready queue */
-            ReleaseSpinLock(&Scheduler->SchedulerLock);
+            /* splice into ready tail under lock */
+            if (!Scheduler->ReadyQueue)
+            {
+                Scheduler->ReadyQueue = Current;
+            }
+            else
+            {
+                Thread* Tail = Scheduler->ReadyQueue;
+                while (Tail->Next)
+                {
+                    Tail = Tail->Next;
+                }
+                Tail->Next    = Current;
+                Current->Prev = Tail;
+            }
 
-            /* Add thread back to ready queue */
-            AddThreadToReadyQueue(__CpuId__, Current);
-
-            /* Re-acquire lock and continue */
-            AcquireSpinLock(&Scheduler->SchedulerLock);
+            Scheduler->ReadyCount++;
         }
         else
         {
-            /* Move to next thread */
             Prev = Current;
         }
 
         Current = Next;
     }
 
-    /* Release lock after processing all sleeping threads */
     ReleaseSpinLock(&Scheduler->SchedulerLock);
 }
 
@@ -471,19 +468,16 @@ Schedule(uint32_t __CpuId__, InterruptFrame* __Frame__)
 
             case ThreadStateTerminated:
                 /* Thread has finished, move it to zombie queue */
-                RemoveThreadFromReadyQueue(__CpuId__);
                 AddThreadToZombieQueue(__CpuId__, Current);
                 break;
 
             case ThreadStateBlocked:
                 /* Thread is waiting for I/O or resource, move to waiting queue */
-                RemoveThreadFromReadyQueue(__CpuId__);
                 AddThreadToWaitingQueue(__CpuId__, Current);
                 break;
 
             case ThreadStateSleeping:
                 /* Thread is sleeping, add it to sleeping queue */
-                RemoveThreadFromReadyQueue(__CpuId__);
                 AddThreadToSleepingQueue(__CpuId__, Current);
                 break;
 

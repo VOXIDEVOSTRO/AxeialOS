@@ -67,3 +67,4 @@ KEXPORT(GetPhysicalAddress);
 KEXPORT(GetPageTable);
 KEXPORT(FlushTlb);
 KEXPORT(FlushAllTlb);
+KEXPORT(Vmm);

@@ -191,8 +191,8 @@ MapPage(VirtualMemorySpace* __Space__,
 
     if (Pt[PtIndex] & PTEPRESENT)
     {
-        PWarn("Page already mapped at 0x%016lx\n", __VirtAddr__);
-        return 0;
+        PDebug("Page already mapped at 0x%016lx\n", __VirtAddr__);
+        return 1;
     }
 
     Pt[PtIndex] = (__PhysAddr__ & 0x000FFFFFFFFFF000ULL) | __Flags__ | PTEPRESENT;

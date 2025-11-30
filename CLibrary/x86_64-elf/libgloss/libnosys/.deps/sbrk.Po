@@ -1,0 +1,4 @@
+libnosys/sbrk.o: ../../newlib/libgloss/libnosys/sbrk.c config.h \
+ /mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_syslist.h
+config.h:
+/mnt/c/Users/adity/Desktop/AxeialOS/CLibrary/newlib/newlib/libc/include/_syslist.h:

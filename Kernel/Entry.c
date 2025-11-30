@@ -1,34 +1,9 @@
-#include <APICTimer.h>
-#include <AllTypes.h>
-#include <AxeSchd.h>
-#include <AxeThreads.h>
-#include <BootConsole.h>
-#include <BootImg.h>
-#include <CharBus.h>
-#include <DevFS.h>
-#include <EarlyBootFB.h>
-#include <GDT.h>
-#include <IDT.h>
-#include <KExports.h>
-#include <KHeap.h>
-#include <KrnPrintf.h>
-#include <LimineServices.h>
-#include <ModELF.h>
-#include <ModMemMgr.h>
-#include <PMM.h>
-#include <ProcFS.h>
-#include <PubELF.h>
-#include <SMP.h>
-#include <Serial.h>
-#include <SymAP.h>
-#include <Sync.h>
-#include <Timer.h>
-#include <VFS.h>
-#include <VMM.h>
+#include "KrnCommon.h"
+
 /** Devs */
 #define __Kernel__
 
-static SpinLock TestLock;
+SpinLock TestLock;
 
 void
 KernelWorkerThread(void* __Argument__)
@@ -37,16 +12,6 @@ KernelWorkerThread(void* __Argument__)
 
     ModMemInit();
     InitializeBootImage();
-
-    VfsPerm Perm;
-    Perm.Mode = VModeRUSR | VModeWUSR | VModeXUSR | VModeRGRP | VModeXGRP | VModeROTH | VModeXOTH;
-    Perm.Uid  = 0;
-    Perm.Gid  = 0;
-
-    if (VfsMkdir("/dev", Perm) != 0)
-    {
-        PError("Failed to create /dev\n");
-    }
 
     DevFsInit();
     Superblock* SuperBlk = DevFsMountImpl(0, 0);
@@ -61,30 +26,18 @@ KernelWorkerThread(void* __Argument__)
     }
     DevFsRegisterSeedDevices();
 
-    if (ProcInit() != 0)
-    {
-        PError("Init: ProcInit failed\n");
-        return;
-    }
-
     if (ProcFsInit() != 0)
     {
-        PError("Init: ProcFsInit failed\n");
+        PError("procfs init failed\n");
         return;
-    }
-
-    Process* InitProc = ProcFind(1);
-    if (InitProc)
-    {
-        ProcFsExposeProcess(InitProc);
     }
 
     InitRamDiskDevDrvs();
 
-    for (;;)
-    {
-        __asm__ volatile("hlt");
-    }
+    __TEST__Proc();
+
+    /*done*/
+    ThreadExit(0);
 }
 
 void
@@ -135,6 +88,8 @@ _start(void)
         InitializeKHeap();
 
         InitializeTimer();
+        InitSyscall();
+        SetIdtEntry(0x80, (uint64_t)SysEntASM, KernelCodeSelector, 0xEE);
         InitializeThreadManager();
         InitializeSpinLock(&SMPLock, "SMP");
         InitializeSmp();

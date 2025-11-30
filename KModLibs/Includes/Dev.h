@@ -36,7 +36,7 @@ typedef struct DeviceEntry
     DevType     Type;    /* DevChar / DevBlock */
     uint32_t    Major;   /* optional major classification */
     uint32_t    Minor;   /* optional minor instance */
-    void*       Context; /* driver-private context */
+    void*       Context; /* driver-private/specific context */
     union
     {
         CharDevOps  C;

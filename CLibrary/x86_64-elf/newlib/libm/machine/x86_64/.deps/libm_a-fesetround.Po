@@ -1,0 +1,4 @@
+libm/machine/x86_64/libm_a-fesetround.o: \
+ ../../newlib/newlib/libm/machine/x86_64/fesetround.c \
+ ../../newlib/newlib/libm/machine/x86_64/../../fenv/fenv_stub.c
+../../newlib/newlib/libm/machine/x86_64/../../fenv/fenv_stub.c:

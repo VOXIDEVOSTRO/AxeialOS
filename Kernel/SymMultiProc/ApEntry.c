@@ -2,8 +2,9 @@
 #include <AxeSchd.h>    /* Axe Scheduler definitions */
 #include <AxeThreads.h> /* Thread management interfaces */
 #include <SymAP.h>      /* Symmetric Multiprocessing Application Processor definitions */
-#include <Timer.h>      /* Timer management interfaces */
-#include <VMM.h>        /* Virtual Memory Management functions */
+#include <Syscall.h>
+#include <Timer.h> /* Timer management interfaces */
+#include <VMM.h>   /* Virtual Memory Management functions */
 
 void
 ApEntryPoint(struct limine_smp_info* __CpuInfo__)
@@ -65,6 +66,8 @@ ApEntryPoint(struct limine_smp_info* __CpuInfo__)
     SetupApicTimerForThisCpu();
 
     InitializeCpuScheduler(CpuNumber);
+
+    SetIdtEntry(0x80, (uint64_t)SysEntASM, KernelCodeSelector, 0xEE);
 
     __asm__ volatile("sti");
 

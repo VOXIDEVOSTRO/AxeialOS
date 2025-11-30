@@ -1,0 +1,1 @@
+libnosys/errno.o: ../../newlib/libgloss/libnosys/errno.c

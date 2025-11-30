@@ -1,0 +1,4 @@
+libc/machine/x86_64/libc_a-memset.o: \
+ ../../newlib/newlib/libc/machine/x86_64/memset.S \
+ ../../newlib/newlib/libc/machine/x86_64/x86_64mach.h
+../../newlib/newlib/libc/machine/x86_64/x86_64mach.h:

@@ -117,6 +117,7 @@ DevFsRegisterCharDevice(const char* __Name__,
     {
         return -1;
     }
+
     if (__DevCount__ >= __MaxDevices__)
     {
         return -1;
@@ -124,7 +125,6 @@ DevFsRegisterCharDevice(const char* __Name__,
 
     if (__dev_find__(__Name__))
     {
-        PWarn("DevFS: Device exists %s\n", __Name__);
         return -1;
     }
 
@@ -134,15 +134,28 @@ DevFsRegisterCharDevice(const char* __Name__,
         return -1;
     }
 
-    E->Name    = __Name__;
+    memset(E, 0, sizeof(*E));
+
+    const long CapName   = 255; /*uint8 Max*/
+    char*      NameStore = (char*)KMalloc(CapName + 1);
+    if (!NameStore)
+    {
+        KFree(E);
+        return -1;
+    }
+    strncpy(NameStore, __Name__, CapName);
+    NameStore[CapName] = '\0';
+
+    E->Name    = NameStore;
     E->Type    = DevChar;
     E->Major   = __Major__;
     E->Minor   = __Minor__;
     E->Context = __Context__;
-    E->Ops.C   = __Ops__;
+    __builtin_memcpy(&E->Ops.C, &__Ops__, sizeof(CharDevOps));
 
-    __DevTable__[__DevCount__++] = E;
-    PDebug("DevFS: Char registered %s\n", __Name__);
+    __DevTable__[__DevCount__] = E;
+    __DevCount__++;
+
     return 0;
 }
 

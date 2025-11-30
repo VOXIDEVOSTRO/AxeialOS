@@ -269,51 +269,76 @@ ISR_STUB(1)
 ISR_STUB(2)
 ISR_STUB(3)
 ISR_STUB(4)
-ISR_STUB(5) ISR_STUB(6) ISR_STUB(7) ISR_STUB_ERR(8) ISR_STUB(9) ISR_STUB_ERR(10) ISR_STUB_ERR(11)
-    ISR_STUB_ERR(12) ISR_STUB_ERR(13) ISR_STUB_ERR(14) ISR_STUB(15) ISR_STUB(16) ISR_STUB(17)
-        ISR_STUB(18) ISR_STUB(19)
+ISR_STUB(5)
+ISR_STUB(6)
+ISR_STUB(7)
+ISR_STUB_ERR(8)
+ISR_STUB(9)
+ISR_STUB_ERR(10)
+ISR_STUB_ERR(11)
+ISR_STUB_ERR(12)
+ISR_STUB_ERR(13)
+ISR_STUB_ERR(14)
+ISR_STUB(15)
+ISR_STUB(16)
+ISR_STUB(17)
+ISR_STUB(18)
+ISR_STUB(19)
 
-    /*Generate IRQ stubs for hardware interrupts 32-47*/
-    IRQ_STUB(0, 32) IRQ_STUB(1, 33) IRQ_STUB(2, 34) IRQ_STUB(3, 35) IRQ_STUB(4, 36) IRQ_STUB(5, 37)
-        IRQ_STUB(6, 38) IRQ_STUB(7, 39) IRQ_STUB(8, 40) IRQ_STUB(9, 41) IRQ_STUB(10, 42)
-            IRQ_STUB(11, 43) IRQ_STUB(12, 44) IRQ_STUB(13, 45) IRQ_STUB(14, 46) IRQ_STUB(15, 47)
+/*Generate IRQ stubs for hardware interrupts 32-47*/
+IRQ_STUB(0, 32)
+IRQ_STUB(1, 33)
+IRQ_STUB(2, 34)
+IRQ_STUB(3, 35)
+IRQ_STUB(4, 36)
+IRQ_STUB(5, 37)
+IRQ_STUB(6, 38)
+IRQ_STUB(7, 39)
+IRQ_STUB(8, 40)
+IRQ_STUB(9, 41)
+IRQ_STUB(10, 42)
+IRQ_STUB(11, 43)
+IRQ_STUB(12, 44)
+IRQ_STUB(13, 45)
+IRQ_STUB(14, 46)
+IRQ_STUB(15, 47)
 
-                __asm__("IsrCommonStub:\n\t"
-                        "pushq %rax\n\t" /*Save general-purpose registers*/
-                        "pushq %rbx\n\t"
-                        "pushq %rcx\n\t"
-                        "pushq %rdx\n\t"
-                        "pushq %rsi\n\t"
-                        "pushq %rdi\n\t"
-                        "pushq %rbp\n\t"
-                        "pushq %r8\n\t" /*Save extended registers*/
-                        "pushq %r9\n\t"
-                        "pushq %r10\n\t"
-                        "pushq %r11\n\t"
-                        "pushq %r12\n\t"
-                        "pushq %r13\n\t"
-                        "pushq %r14\n\t"
-                        "pushq %r15\n\t"
-                        "movq %rsp, %rdi\n\t" /*Pass stack pointer as argument to C handler*/
-                        "call IsrHandler\n\t" /*Call the C exception handler*/
-                        "popq %r15\n\t"       /*Restore all registers in reverse order*/
-                        "popq %r14\n\t"
-                        "popq %r13\n\t"
-                        "popq %r12\n\t"
-                        "popq %r11\n\t"
-                        "popq %r10\n\t"
-                        "popq %r9\n\t"
-                        "popq %r8\n\t"
-                        "popq %rbp\n\t"
-                        "popq %rdi\n\t"
-                        "popq %rsi\n\t"
-                        "popq %rdx\n\t"
-                        "popq %rcx\n\t"
-                        "popq %rbx\n\t"
-                        "popq %rax\n\t"
-                        "addq $16, %rsp\n\t" /*Remove error code and vector number from stack*/
-                        "iretq\n\t"          /*Return from interrupt*/
-                );
+__asm__("IsrCommonStub:\n\t"
+        "pushq %rax\n\t" /*Save general-purpose registers*/
+        "pushq %rbx\n\t"
+        "pushq %rcx\n\t"
+        "pushq %rdx\n\t"
+        "pushq %rsi\n\t"
+        "pushq %rdi\n\t"
+        "pushq %rbp\n\t"
+        "pushq %r8\n\t" /*Save extended registers*/
+        "pushq %r9\n\t"
+        "pushq %r10\n\t"
+        "pushq %r11\n\t"
+        "pushq %r12\n\t"
+        "pushq %r13\n\t"
+        "pushq %r14\n\t"
+        "pushq %r15\n\t"
+        "movq %rsp, %rdi\n\t" /*Pass stack pointer as argument to C handler*/
+        "call IsrHandler\n\t" /*Call the C exception handler*/
+        "popq %r15\n\t"       /*Restore all registers in reverse order*/
+        "popq %r14\n\t"
+        "popq %r13\n\t"
+        "popq %r12\n\t"
+        "popq %r11\n\t"
+        "popq %r10\n\t"
+        "popq %r9\n\t"
+        "popq %r8\n\t"
+        "popq %rbp\n\t"
+        "popq %rdi\n\t"
+        "popq %rsi\n\t"
+        "popq %rdx\n\t"
+        "popq %rcx\n\t"
+        "popq %rbx\n\t"
+        "popq %rax\n\t"
+        "addq $16, %rsp\n\t" /*Remove error code and vector number from stack*/
+        "iretq\n\t"          /*Return from interrupt*/
+);
 
 __asm__("IrqCommonStub:\n\t"
         "pushq %rax\n\t" /*Save general-purpose registers*/
