@@ -1,12 +1,18 @@
 #include "KrnCommon.h"
 #include <Errnos.h>
 
+
+// Uncomment this for the early-spash.
 // #define EarlySplash
 
 /** Devs */
 #define __Kernel__
 
 SpinLock TestLock;
+// Set a `bool`, when the init
+// is completed, this will be set
+// to true. Like this the system knows
+// when it is booted.
 bool     InitComplete = false;
 
 /*Worker*/
@@ -16,8 +22,10 @@ KernelWorkerThread(void* __Argument__)
     SysErr  err;
     SysErr* Error = &err;
 
+    // Just output some information.
     PInfo("[Starting post kernel init]\n");
 
+    // Output that the worker has started, and on what CPU.
     PInfo("Kernel Worker started on CPU %u\n", GetCurrentCpuId());
 
     /*Modules*/
@@ -27,13 +35,18 @@ KernelWorkerThread(void* __Argument__)
     /*Udev/Devfs*/
     DevFsInit();
     Superblock* SuperBlk = DevFsMountImpl(0, 0);
+    /* If there's an error: */
     if (Probe_IF_Error(SuperBlk))
     {
+        // Set init complete to false.
         InitComplete = false;
+        // Log the error.
         PError("devfs failed\n");
     }
+    // Else, if there is no error:
     else
     {
+        // Set initComplete to true.
         InitComplete = true;
     }
 
