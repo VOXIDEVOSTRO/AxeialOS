@@ -719,7 +719,8 @@ DevVfsReaddir(Vnode* __Dir__, void* __Buf__, long __BufLen__)
         return -BadEntity;
     }
 
-    long Max = __BufLen__ / (long)sizeof(VfsDirEnt);
+    long Max = __BufLen__;
+
     if (Max <= 0)
     {
         return -TooSmall;
@@ -770,7 +771,7 @@ DevVfsReaddir(Vnode* __Dir__, void* __Buf__, long __BufLen__)
         Wrote++;
     }
 
-    return Wrote * (long)sizeof(VfsDirEnt);
+    return Wrote;
 }
 
 static Vnode*

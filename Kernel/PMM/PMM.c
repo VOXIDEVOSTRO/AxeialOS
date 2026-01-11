@@ -6,14 +6,15 @@ PhysicalMemoryManager Pmm = {0};
 uint64_t
 FindFreePage(void)
 {
-    uint64_t StartHint = Pmm.LastAllocHint;
+    uint64_t StartHint  = atomic_load(&Pmm.LastAllocHint);
+    uint64_t totalPages = atomic_load(&Pmm.TotalPages);
 
     /*Look from hint forward to end of memory*/
-    for (uint64_t Index = StartHint; Index < Pmm.TotalPages; Index++)
+    for (uint64_t Index = StartHint; Index < totalPages; Index++)
     {
         if (!TestBitmapBit(Index))
         {
-            Pmm.LastAllocHint = Index + 1;
+            atomic_store(&Pmm.LastAllocHint, Index + 1);
             return Index;
         }
     }
@@ -23,7 +24,7 @@ FindFreePage(void)
     {
         if (!TestBitmapBit(Index))
         {
-            Pmm.LastAllocHint = Index + 1;
+            atomic_store(&Pmm.LastAllocHint, Index + 1);
             return Index;
         }
     }
@@ -39,18 +40,18 @@ InitializePmm(SysErr* __Err__)
         SlotError(__Err__, -NotCanonical);
         return;
     }
-    Pmm.HhdmOffset = HhdmRequest.response->offset;
-    PDebug("HHDM offset: 0x%016lx\n", Pmm.HhdmOffset);
+    atomic_store(&Pmm.HhdmOffset, HhdmRequest.response->offset);
+    PDebug("HHDM offset: 0x%016lx\n", atomic_load(&Pmm.HhdmOffset));
 
     ParseMemoryMap(__Err__);
-    if (Pmm.RegionCount == 0)
+    if (atomic_load(&Pmm.RegionCount) == 0)
     {
         SlotError(__Err__, -NoSuch);
         return;
     }
 
     InitializeBitmap(__Err__);
-    if (Pmm.Bitmap == 0)
+    if (atomic_load(&Pmm.Bitmap) == 0)
     {
         SlotError(__Err__, -NotInit);
         return;
@@ -60,25 +61,26 @@ InitializePmm(SysErr* __Err__)
     MarkMemoryRegions(__Err__);
 
     /*Calculate final memory statistics*/
-    Pmm.Stats.TotalPages = Pmm.TotalPages;
-    Pmm.Stats.UsedPages  = 0;
-    Pmm.Stats.FreePages  = 0;
+    atomic_store(&Pmm.Stats.TotalPages, atomic_load(&Pmm.TotalPages));
+    atomic_store(&Pmm.Stats.UsedPages, 0);
+    atomic_store(&Pmm.Stats.FreePages, 0);
 
-    for (uint64_t Index = 0; Index < Pmm.TotalPages; Index++)
+    uint64_t totalPages = atomic_load(&Pmm.TotalPages);
+    for (uint64_t Index = 0; Index < totalPages; Index++)
     {
         if (TestBitmapBit(Index))
         {
-            Pmm.Stats.UsedPages++;
+            atomic_fetch_add(&Pmm.Stats.UsedPages, 1);
         }
         else
         {
-            Pmm.Stats.FreePages++;
+            atomic_fetch_add(&Pmm.Stats.FreePages, 1);
         }
     }
 
     PSuccess("PMM initialized: %lu MB total, %lu MB free\n",
-             (Pmm.Stats.TotalPages * PageSize) / (1024 * 1024),
-             (Pmm.Stats.FreePages * PageSize) / (1024 * 1024));
+             (atomic_load(&Pmm.Stats.TotalPages) * PageSize) / (1024 * 1024),
+             (atomic_load(&Pmm.Stats.FreePages) * PageSize) / (1024 * 1024));
 }
 
 uint64_t
@@ -96,8 +98,8 @@ AllocPage(void)
 
     /*Mark page as used in bitmap*/
     SetBitmapBit(PageIndex, Error);
-    Pmm.Stats.UsedPages++;
-    Pmm.Stats.FreePages--;
+    atomic_fetch_add(&Pmm.Stats.UsedPages, 1);
+    atomic_fetch_sub(&Pmm.Stats.FreePages, 1);
 
     uint64_t PhysAddr = PageIndex * PageSize;
     PDebug("Allocated page: 0x%016lx (index %lu)\n", PhysAddr, PageIndex);
@@ -124,8 +126,8 @@ FreePage(uint64_t __PhysAddr__, SysErr* __Err__)
 
     /*Mark page as free in bitmap*/
     ClearBitmapBit(PageIndex, __Err__);
-    Pmm.Stats.UsedPages--;
-    Pmm.Stats.FreePages++;
+    atomic_fetch_sub(&Pmm.Stats.UsedPages, 1);
+    atomic_fetch_add(&Pmm.Stats.FreePages, 1);
 
     PDebug("Freed a page: 0x%016lx (index %lu)\n", __PhysAddr__, PageIndex);
 }
@@ -143,13 +145,15 @@ AllocPages(size_t __Count__)
         return AllocPage();
     }
 
-    if (__Count__ > Pmm.Stats.FreePages)
+    if (__Count__ > atomic_load(&Pmm.Stats.FreePages))
     {
         return Nothing;
     }
 
+    uint64_t totalPages = atomic_load(&Pmm.TotalPages);
+
     /*Search for contiguous free block*/
-    for (uint64_t StartIndex = 0; StartIndex <= Pmm.TotalPages - __Count__; StartIndex++)
+    for (uint64_t StartIndex = 0; StartIndex <= totalPages - __Count__; StartIndex++)
     {
         int Found = 1;
 
@@ -172,8 +176,8 @@ AllocPages(size_t __Count__)
                 SetBitmapBit(StartIndex + Offset, Error);
             }
 
-            Pmm.Stats.UsedPages += __Count__;
-            Pmm.Stats.FreePages -= __Count__;
+            atomic_fetch_add(&Pmm.Stats.UsedPages, __Count__);
+            atomic_fetch_sub(&Pmm.Stats.FreePages, __Count__);
 
             uint64_t PhysAddr = StartIndex * PageSize;
             PDebug("Allocated %lu contiguous pages at: 0x%016lx\n", __Count__, PhysAddr);
@@ -214,7 +218,7 @@ PmmValidatePage(uint64_t __PhysAddr__)
     {
         return -NotCanonical;
     }
-    if ((__PhysAddr__ / PageSize) >= Pmm.TotalPages)
+    if ((__PhysAddr__ / PageSize) >= atomic_load(&Pmm.TotalPages))
     {
         return -TooMany;
     }

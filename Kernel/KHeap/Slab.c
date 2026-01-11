@@ -39,15 +39,17 @@ AllocateSlab(uint32_t __ObjectSize__)
     uint8_t*    SlabEnd    = (uint8_t*)NewSlab + PageSize;
     SlabObject* PrevObject = 0; /*Previous object in free list*/
 
+    uint32_t AlignedSize = (__ObjectSize__ + 15) & ~15;
+
     /*Link in reverse order*/
-    while ((ObjectPtr + __ObjectSize__) <= SlabEnd)
+    while ((ObjectPtr + AlignedSize) <= SlabEnd)
     {
         SlabObject* Object = (SlabObject*)ObjectPtr;
-        Object->Next       = PrevObject;      /*Link to previous free object*/
-        Object->Magic      = FreeObjectMagic; /*Mark as free*/
-        PrevObject         = Object;          /*Update previous for next iteration*/
-        ObjectPtr += __ObjectSize__;          /*Move to next object position*/
-        NewSlab->FreeCount++;                 /*Count free objects*/
+        Object->Next       = PrevObject;
+        Object->Magic      = FreeObjectMagic;
+        PrevObject         = Object;
+        ObjectPtr += AlignedSize;
+        NewSlab->FreeCount++;
     }
 
     NewSlab->FreeList = PrevObject;

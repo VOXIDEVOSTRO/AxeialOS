@@ -15,7 +15,7 @@ __AppendStr__(char* __Buf__, long __Cap__, long* __Off__, const char* __Str__)
         return -BadArgs;
     }
 
-    long N = *__Off__;
+    long N = atomic_load_explicit((atomic_long*)__Off__, memory_order_relaxed);
     if (N < 0)
     {
         return -TooSmall;
@@ -32,8 +32,8 @@ __AppendStr__(char* __Buf__, long __Cap__, long* __Off__, const char* __Str__)
     if (C > 0)
     {
         memcpy(__Buf__ + N, __Str__, (size_t)C);
-        N += C;
-        *__Off__ = N;
+        long NewN = N + C;
+        atomic_store_explicit((atomic_long*)__Off__, NewN, memory_order_release);
     }
 
     return C;
@@ -47,7 +47,7 @@ __AppendChar__(char* __Buf__, long __Cap__, long* __Off__, char __Ch__)
         return -BadArgs;
     }
 
-    long N = *__Off__;
+    long N = atomic_load_explicit((atomic_long*)__Off__, memory_order_relaxed);
     if (N < 0)
     {
         return -TooSmall;
@@ -58,9 +58,9 @@ __AppendChar__(char* __Buf__, long __Cap__, long* __Off__, char __Ch__)
     }
 
     __Buf__[N++] = __Ch__;
-    *__Off__     = N;
+    atomic_store_explicit((atomic_long*)__Off__, N, memory_order_release);
 
-    return 1; /*it's a char*/
+    return 1;
 }
 
 static inline long
@@ -73,7 +73,7 @@ __AppendU64Dec__(char* __Buf__, long __Cap__, long* __Off__, uint64_t __V__)
 
     char Num[32];
     UnsignedToStringEx(__V__, Num, 10, 0);
-    Num[31] = '\0'; /* belt-and-suspenders */
+    Num[31] = '\0';
     return __AppendStr__(__Buf__, __Cap__, __Off__, Num);
 }
 
@@ -112,125 +112,149 @@ ProcFsMakeStatus(PosixProc* __Proc__, char* __Buff__, long __Caps__)
         return -BadArgs;
     }
 
-    long N  = 0;
+    atomic_long N;
+    atomic_store_explicit(&N, 0, memory_order_relaxed);
+    long Nsnap = 0;
+
     char St = __ProcStateCode__(__Proc__);
 
-    __AppendStr__(__Buff__, __Caps__, &N, "Name:\t");
-    PDebug("Status Name N=%ld", N);
-    __AppendStr__(__Buff__, __Caps__, &N, (__Proc__->Comm[0] ? __Proc__->Comm : "NA"));
-    PDebug("Status Comm N=%ld", N);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "Name:\t");
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status Name N=%ld", atomic_load_explicit(&N, memory_order_acquire));
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, (__Proc__->Comm[0] ? __Proc__->Comm : "NA"));
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status Comm N=%ld", atomic_load_explicit(&N, memory_order_acquire));
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
 
-    __AppendStr__(__Buff__, __Caps__, &N, "State:\t");
-    __AppendChar__(__Buff__, __Caps__, &N, St);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status State N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "State:\t");
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, St);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status State N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "Pid:\t");
-    __AppendU64Dec__(__Buff__, __Caps__, &N, (uint64_t)__Proc__->Pid);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status Pid N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "Pid:\t");
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, (uint64_t)__Proc__->Pid);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status Pid N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "PPid:\t");
-    __AppendU64Dec__(__Buff__, __Caps__, &N, (uint64_t)__Proc__->Ppid);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status PPid N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "PPid:\t");
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, (uint64_t)__Proc__->Ppid);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status PPid N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "Pgrp:\t");
-    __AppendU64Dec__(__Buff__, __Caps__, &N, (uint64_t)__Proc__->Pgrp);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status Pgrp N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "Pgrp:\t");
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, (uint64_t)__Proc__->Pgrp);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status Pgrp N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "Sid:\t");
-    __AppendU64Dec__(__Buff__, __Caps__, &N, (uint64_t)__Proc__->Sid);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status Sid N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "Sid:\t");
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, (uint64_t)__Proc__->Sid);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status Sid N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "Tty:\t");
-    __AppendStr__(__Buff__, __Caps__, &N, (__Proc__->TtyName ? __Proc__->TtyName : "NA"));
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status Tty N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "Tty:\t");
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, (__Proc__->TtyName ? __Proc__->TtyName : "NA"));
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status Tty N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "Uid:\t");
-    __AppendU64Dec__(__Buff__, __Caps__, &N, (uint64_t)__Proc__->Cred.Ruid);
-    __AppendChar__(__Buff__, __Caps__, &N, '\t');
-    __AppendU64Dec__(__Buff__, __Caps__, &N, (uint64_t)__Proc__->Cred.Euid);
-    __AppendChar__(__Buff__, __Caps__, &N, '\t');
-    __AppendU64Dec__(__Buff__, __Caps__, &N, (uint64_t)__Proc__->Cred.Suid);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status Uid N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "Uid:\t");
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, (uint64_t)__Proc__->Cred.Ruid);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\t');
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, (uint64_t)__Proc__->Cred.Euid);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\t');
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, (uint64_t)__Proc__->Cred.Suid);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status Uid N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "Gid:\t");
-    __AppendU64Dec__(__Buff__, __Caps__, &N, (uint64_t)__Proc__->Cred.Rgid);
-    __AppendChar__(__Buff__, __Caps__, &N, '\t');
-    __AppendU64Dec__(__Buff__, __Caps__, &N, (uint64_t)__Proc__->Cred.Egid);
-    __AppendChar__(__Buff__, __Caps__, &N, '\t');
-    __AppendU64Dec__(__Buff__, __Caps__, &N, (uint64_t)__Proc__->Cred.Sgid);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status Gid N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "Gid:\t");
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, (uint64_t)__Proc__->Cred.Rgid);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\t');
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, (uint64_t)__Proc__->Cred.Egid);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\t');
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, (uint64_t)__Proc__->Cred.Sgid);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status Gid N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "Umask:\t0");
-    __AppendU64Oct__(__Buff__, __Caps__, &N, (uint64_t)(__Proc__->Cred.Umask & 0777));
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status Umask N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "Umask:\t0");
+    __AppendU64Oct__(__Buff__, __Caps__, &Nsnap, (uint64_t)(__Proc__->Cred.Umask & 0777));
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status Umask N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "Threads:\t");
-    __AppendU64Dec__(__Buff__, __Caps__, &N, (uint64_t)1);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status Threads N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "Threads:\t");
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, (uint64_t)1);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status Threads N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "SigPnd:\t");
-    __AppendU64Hex__(__Buff__, __Caps__, &N, __Proc__->SigPending);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status SigPnd N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "SigPnd:\t");
+    __AppendU64Hex__(__Buff__, __Caps__, &Nsnap, __Proc__->SigPending);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status SigPnd N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "SigBlk:\t");
-    __AppendU64Hex__(__Buff__, __Caps__, &N, __Proc__->SigMask);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status SigBlk N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "SigBlk:\t");
+    __AppendU64Hex__(__Buff__, __Caps__, &Nsnap, __Proc__->SigMask);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status SigBlk N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "SigIgn:\t");
-    __AppendStr__(__Buff__, __Caps__, &N, "NA");
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status SigIgn N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "SigIgn:\t");
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "NA");
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status SigIgn N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "SigCgt:\t");
-    __AppendStr__(__Buff__, __Caps__, &N, "NA");
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status SigCgt N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "SigCgt:\t");
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "NA");
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status SigCgt N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "Utime(us):\t");
-    __AppendU64Dec__(__Buff__, __Caps__, &N, __Proc__->Times.UserUsec);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status Utime N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "Utime(us):\t");
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, __Proc__->Times.UserUsec);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status Utime N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "Stime(us):\t");
-    __AppendU64Dec__(__Buff__, __Caps__, &N, __Proc__->Times.SysUsec);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status Stime N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "Stime(us):\t");
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, __Proc__->Times.SysUsec);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status Stime N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "StartTick:\t");
-    __AppendU64Dec__(__Buff__, __Caps__, &N, __Proc__->Times.StartTick);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status StartTick N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "StartTick:\t");
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, __Proc__->Times.StartTick);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status StartTick N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "CmdlineLen:\t");
-    __AppendU64Dec__(__Buff__, __Caps__, &N, (uint64_t)__Proc__->CmdlineLen);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status CmdlineLen N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "CmdlineLen:\t");
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, (uint64_t)__Proc__->CmdlineLen);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status CmdlineLen N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendStr__(__Buff__, __Caps__, &N, "EnvironLen:\t");
-    __AppendU64Dec__(__Buff__, __Caps__, &N, (uint64_t)__Proc__->EnvironLen);
-    __AppendChar__(__Buff__, __Caps__, &N, '\n');
-    PDebug("Status EnvironLen N=%ld", N);
+    __AppendStr__(__Buff__, __Caps__, &Nsnap, "EnvironLen:\t");
+    __AppendU64Dec__(__Buff__, __Caps__, &Nsnap, (uint64_t)__Proc__->EnvironLen);
+    __AppendChar__(__Buff__, __Caps__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("Status EnvironLen N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    /* terminate if room remains */
-    if ((__Caps__ - N) >= 1)
+    long FinalN = atomic_load_explicit(&N, memory_order_acquire);
+    if ((__Caps__ - FinalN) >= 1)
     {
-        __Buff__[N] = '\0';
+        __Buff__[FinalN] = '\0';
     }
 
-    return N;
+    return FinalN;
 }
 
 static inline long
@@ -254,64 +278,77 @@ ProcFsMakeStat(PosixProc* __Proc__, char* __Buf__, long __Cap__)
         return -BadArgs;
     }
 
-    long N  = 0;
+    atomic_long N;
+    atomic_store_explicit(&N, 0, memory_order_relaxed);
+    long Nsnap = 0;
+
     char St = __ProcStateCode__(__Proc__);
     char Num[64];
 
     UnsignedToStringEx((uint64_t)__Proc__->Pid, Num, 10, 0);
-    __AppendStr__(__Buf__, __Cap__, &N, Num);
-    PDebug("stat: pid N=%ld", N);
+    __AppendStr__(__Buf__, __Cap__, &Nsnap, Num);
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("stat: pid N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendChar__(__Buf__, __Cap__, &N, ' ');
-    __AppendChar__(__Buf__, __Cap__, &N, '(');
-    __AppendStr__(__Buf__, __Cap__, &N, (__Proc__->Comm[0] ? __Proc__->Comm : "unknown"));
-    __AppendChar__(__Buf__, __Cap__, &N, ')');
-    __AppendChar__(__Buf__, __Cap__, &N, ' ');
-    __AppendChar__(__Buf__, __Cap__, &N, St);
-    PDebug("stat: comm/state N=%ld", N);
+    __AppendChar__(__Buf__, __Cap__, &Nsnap, ' ');
+    __AppendChar__(__Buf__, __Cap__, &Nsnap, '(');
+    __AppendStr__(__Buf__, __Cap__, &Nsnap, (__Proc__->Comm[0] ? __Proc__->Comm : "unknown"));
+    __AppendChar__(__Buf__, __Cap__, &Nsnap, ')');
+    __AppendChar__(__Buf__, __Cap__, &Nsnap, ' ');
+    __AppendChar__(__Buf__, __Cap__, &Nsnap, St);
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("stat: comm/state N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
     UnsignedToStringEx((uint64_t)__Proc__->Ppid, Num, 10, 0);
-    __AppendField__(__Buf__, __Cap__, &N, Num);
+    __AppendField__(__Buf__, __Cap__, &Nsnap, Num);
     UnsignedToStringEx((uint64_t)__Proc__->Pgrp, Num, 10, 0);
-    __AppendField__(__Buf__, __Cap__, &N, Num);
+    __AppendField__(__Buf__, __Cap__, &Nsnap, Num);
     UnsignedToStringEx((uint64_t)__Proc__->Sid, Num, 10, 0);
-    __AppendField__(__Buf__, __Cap__, &N, Num);
-    PDebug("stat: ppid/pgrp/sid N=%ld", N);
+    __AppendField__(__Buf__, __Cap__, &Nsnap, Num);
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("stat: ppid/pgrp/sid N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
     for (int I = 0; I < 7; I++)
     {
-        __AppendField__(__Buf__, __Cap__, &N, "0");
+        __AppendField__(__Buf__, __Cap__, &Nsnap, "0");
     }
-    PDebug("stat: zeros(7) N=%ld", N);
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("stat: zeros(7) N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
     UnsignedToStringEx(__Proc__->Times.UserUsec, Num, 10, 0);
-    __AppendField__(__Buf__, __Cap__, &N, Num);
+    __AppendField__(__Buf__, __Cap__, &Nsnap, Num);
     UnsignedToStringEx(__Proc__->Times.SysUsec, Num, 10, 0);
-    __AppendField__(__Buf__, __Cap__, &N, Num);
-    PDebug("stat: utime/stime N=%ld", N);
+    __AppendField__(__Buf__, __Cap__, &Nsnap, Num);
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("stat: utime/stime N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
     for (int J = 0; J < 6; J++)
     {
-        __AppendField__(__Buf__, __Cap__, &N, (J == 4) ? "1" : "0");
+        __AppendField__(__Buf__, __Cap__, &Nsnap, (J == 4) ? "1" : "0");
     }
-    PDebug("stat: six fields N=%ld", N);
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("stat: six fields N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
     UnsignedToStringEx(__Proc__->Times.StartTick, Num, 10, 0);
-    __AppendField__(__Buf__, __Cap__, &N, Num);
-    PDebug("stat: starttime N=%ld", N);
+    __AppendField__(__Buf__, __Cap__, &Nsnap, Num);
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("stat: starttime N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendField__(__Buf__, __Cap__, &N, "0");
-    __AppendField__(__Buf__, __Cap__, &N, "0");
-    PDebug("stat: vsize/rss N=%ld", N);
+    __AppendField__(__Buf__, __Cap__, &Nsnap, "0");
+    __AppendField__(__Buf__, __Cap__, &Nsnap, "0");
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("stat: vsize/rss N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    __AppendChar__(__Buf__, __Cap__, &N, '\n');
-    PDebug("stat: final N=%ld", N);
+    __AppendChar__(__Buf__, __Cap__, &Nsnap, '\n');
+    atomic_store_explicit(&N, Nsnap, memory_order_release);
+    PDebug("stat: final N=%ld", atomic_load_explicit(&N, memory_order_acquire));
 
-    if ((__Cap__ - N) >= 1)
+    long FinalN = atomic_load_explicit(&N, memory_order_acquire);
+    if ((__Cap__ - FinalN) >= 1)
     {
-        __Buf__[N] = '\0';
+        __Buf__[FinalN] = '\0';
     }
-    return N;
+    return FinalN;
 }
 
 long
@@ -328,7 +365,9 @@ ProcFsListFds(PosixProc* __Proc__, char* __Buf__, long __Cap__)
         return Nothing;
     }
 
-    long N = 0;
+    atomic_long N;
+    atomic_store_explicit(&N, 0, memory_order_relaxed);
+
     for (long I = 0; I < __Proc__->Fds->Cap; I++)
     {
         PosixFd* E = &__Proc__->Fds->Entries[I];
@@ -337,28 +376,33 @@ ProcFsListFds(PosixProc* __Proc__, char* __Buf__, long __Cap__)
             continue;
         }
 
-        __AppendStr__(__Buf__, __Cap__, &N, "fd:");
-        __AppendU64Dec__(__Buf__, __Cap__, &N, (uint64_t)E->Fd);
+        long Nsnap = atomic_load_explicit(&N, memory_order_relaxed);
 
-        __AppendStr__(__Buf__, __Cap__, &N, " type:");
+        __AppendStr__(__Buf__, __Cap__, &Nsnap, "fd:");
+        __AppendU64Dec__(__Buf__, __Cap__, &Nsnap, (uint64_t)E->Fd);
+
+        __AppendStr__(__Buf__, __Cap__, &Nsnap, " type:");
         __AppendStr__(__Buf__,
                       __Cap__,
-                      &N,
+                      &Nsnap,
                       E->IsFile ? "file" : (E->IsChar ? "char" : (E->IsBlock ? "block" : "none")));
 
-        __AppendStr__(__Buf__, __Cap__, &N, " flags:0x");
-        __AppendU64Hex__(__Buf__, __Cap__, &N, (uint64_t)E->Flags);
+        __AppendStr__(__Buf__, __Cap__, &Nsnap, " flags:0x");
+        __AppendU64Hex__(__Buf__, __Cap__, &Nsnap, (uint64_t)E->Flags);
 
-        __AppendStr__(__Buf__, __Cap__, &N, " refcnt:");
-        __AppendU64Dec__(__Buf__, __Cap__, &N, (uint64_t)(E->Refcnt > 0 ? E->Refcnt : 0));
+        __AppendStr__(__Buf__, __Cap__, &Nsnap, " refcnt:");
+        __AppendU64Dec__(__Buf__, __Cap__, &Nsnap, (uint64_t)(E->Refcnt > 0 ? E->Refcnt : 0));
 
-        __AppendChar__(__Buf__, __Cap__, &N, '\n');
-        if (N >= __Cap__)
+        __AppendChar__(__Buf__, __Cap__, &Nsnap, '\n');
+
+        atomic_store_explicit(&N, Nsnap, memory_order_release);
+        if (Nsnap >= __Cap__)
         {
             break;
         }
     }
-    return (N > __Cap__) ? __Cap__ : N;
+    long FinalN = atomic_load_explicit(&N, memory_order_acquire);
+    return (FinalN > __Cap__) ? __Cap__ : FinalN;
 }
 
 long
@@ -374,7 +418,9 @@ ProcFsWriteState(PosixProc* __Proc__, const char* __Buf__, long __Len__)
     {
         if (__Proc__->MainThread)
         {
-            __Proc__->MainThread->State = ThreadStateBlocked;
+            atomic_store_explicit((atomic_int*)&__Proc__->MainThread->State,
+                                  ThreadStateBlocked,
+                                  memory_order_release);
         }
         return __Len__;
     }
@@ -382,7 +428,8 @@ ProcFsWriteState(PosixProc* __Proc__, const char* __Buf__, long __Len__)
     {
         if (__Proc__->MainThread)
         {
-            __Proc__->MainThread->State = ThreadStateReady;
+            atomic_store_explicit(
+                (atomic_int*)&__Proc__->MainThread->State, ThreadStateReady, memory_order_release);
         }
         return __Len__;
     }
@@ -408,6 +455,7 @@ ProcFsWriteExec(PosixProc* __Proc__, const char* __Buf__, long __Len__)
 
     return (PosixProcExecve(__Proc__, Path, Argv, Envp) == SysOkay) ? __Len__ : -NotCanonical;
 }
+
 long
 ProcFsWriteSignal(PosixProc* __Proc__, const char* __Buf__, long __Len__)
 {

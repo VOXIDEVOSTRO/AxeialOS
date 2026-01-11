@@ -10,7 +10,6 @@ LoadDriver(const char* __DriverName__)
 {
     if (Probe_IF_Error(__DriverName__) || !__DriverName__ || !DriverManager.Initialized)
     {
-        PError("Bad args or not initialized\n");
         return -BadArgs;
     }
 
@@ -24,7 +23,6 @@ LoadDriver(const char* __DriverName__)
 
     if (Driver->State == DriverStateLoaded || Driver->State == DriverStateActive)
     {
-        PWarn("Driver '%s' already loaded\n", __DriverName__);
         return -Redefined;
     }
 
@@ -125,20 +123,13 @@ LoadDriverModule(DriverEntry* __Driver__)
 
     __Driver__->Info.ModuleHandle = Module;
 
-    if (Module->ProbeFn)
+    if (Module->InitFn)
     {
-        int ProbeResult = Module->ProbeFn();
-
-        if (ProbeResult != SysOkay)
-        {
-            UnInstallModule(__Driver__->Info.FilePath);
-            __Driver__->Info.ModuleHandle = NULL;
-            return ProbeResult;
-        }
+        Module->InitFn();
     }
     else
     {
-        PWarn("No probe function found\n");
+        PWarn("No Init function found\n");
     }
 
     PDebug("Successfully loaded module\n");
@@ -253,7 +244,7 @@ GetDriverModuleInfo(const char* __FilePath__, DriverInfo* __Info__)
     strcpy(__Info__->Author, "Unknown", sizeof(__Info__->Author));
     strcpy(__Info__->Version, "1.0", sizeof(__Info__->Version));
     __Info__->VersionCode      = 1;
-    __Info__->Type             = DriverTypeSystem;
+    __Info__->Type             = DriverTypeDefault;
     __Info__->SubType[0]       = '\0';
     __Info__->Priority         = 50;
     __Info__->Flags            = 0;

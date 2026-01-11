@@ -1,6 +1,7 @@
 #include <AllTypes.h>
 #include <AxeSchd.h>
 #include <AxeThreads.h>
+#include <ELFL.h>
 #include <KHeap.h>
 #include <KrnPrintf.h>
 #include <POSIXFd.h>
@@ -12,7 +13,6 @@
 #include <Timer.h>
 #include <VFS.h>
 #include <VMM.h>
-#include <VirtBin.h>
 
 #define __attribute_unused__ __attribute__((unused))
 
@@ -26,8 +26,17 @@
 
 #define RlimitMaxRss (64ULL * 1024ULL * 1024ULL)
 
-static long    __NextPid__ = 1;
-PosixProcTable PosixProcs  = {0};
+/* Atomic helpers for clarity */
+#define ATOMIC_LOAD(ptr)           atomic_load(&(ptr))
+#define ATOMIC_STORE(ptr, val)     atomic_store(&(ptr), (val))
+#define ATOMIC_FETCH_ADD(ptr, val) atomic_fetch_add(&(ptr), (val))
+#define ATOMIC_FETCH_SUB(ptr, val) atomic_fetch_sub(&(ptr), (val))
+#define ATOMIC_FETCH_OR(ptr, val)  atomic_fetch_or(&(ptr), (val))
+#define ATOMIC_FETCH_AND(ptr, val) atomic_fetch_and(&(ptr), (val))
+#define ATOMIC_EXCHANGE(ptr, val)  atomic_exchange(&(ptr), (val))
+
+static _Atomic long __NextPid__ = 1;
+PosixProcTable      PosixProcs  = {0};
 
 static PosixProc* __AllocProc__(void);
 static void       __FreeProc__(PosixProc* __Proc__, SysErr* __Err__);
@@ -66,7 +75,7 @@ __ProcStateCode__(PosixProc* __Proc__)
     {
         return 'X';
     } /* dead/invalid */
-    if (__Proc__->Zombie)
+    if (ATOMIC_LOAD(__Proc__->Zombie))
     {
         return 'Z';
     } /* zombie */
@@ -77,7 +86,7 @@ __ProcStateCode__(PosixProc* __Proc__)
         return 'X';
     }
 
-    switch (T->State)
+    switch (ATOMIC_LOAD(T->State))
     {
         case ThreadStateRunning:
             return 'R'; /* running */
@@ -105,7 +114,7 @@ __CurrentProc__(void)
     {
         return Error_TO_Pointer(-BadEntity);
     }
-    return PosixFind((long)Thrd->ProcessId);
+    return PosixFind((long)ATOMIC_LOAD(Thrd->ProcessId));
 }
 
 PosixProc*
@@ -135,13 +144,13 @@ PosixProcCreate(void)
     Proc->Pgrp = Proc->Pid;
     Proc->Sid  = Proc->Pid;
 
-    Proc->Cred.Ruid  = 0;
-    Proc->Cred.Euid  = 0;
-    Proc->Cred.Suid  = 0;
-    Proc->Cred.Rgid  = 0;
-    Proc->Cred.Egid  = 0;
-    Proc->Cred.Sgid  = 0;
-    Proc->Cred.Umask = DefaultUmask;
+    ATOMIC_STORE(Proc->Cred.Ruid, 0);
+    ATOMIC_STORE(Proc->Cred.Euid, 0);
+    ATOMIC_STORE(Proc->Cred.Suid, 0);
+    ATOMIC_STORE(Proc->Cred.Rgid, 0);
+    ATOMIC_STORE(Proc->Cred.Egid, 0);
+    ATOMIC_STORE(Proc->Cred.Sgid, 0);
+    ATOMIC_STORE(Proc->Cred.Umask, DefaultUmask);
 
     strcpy(Proc->Cwd, "/", MaxPathLen);
     strcpy(Proc->Root, "/", MaxPathLen);
@@ -152,7 +161,7 @@ PosixProcCreate(void)
         return Error_TO_Pointer(-NotInit);
     }
 
-    Proc->Space = VirtCreateSpace();
+    Proc->Space = CreateVirtualSpace();
     if (Probe_IF_Error(Proc->Space) || !Proc->Space)
     {
         __FreeProc__(Proc, Error);
@@ -197,39 +206,16 @@ PosixProcExecve(PosixProc*         __Proc__,
         return -NoSuch;
     }
 
-    /*Select the loader*/
-    const DynLoader* Loader = DynLoaderSelect(F);
-    if (Probe_IF_Error(Loader) || !Loader)
-    {
-        VfsClose(F);
-        return -NoSuch;
-    }
-
-    if (Probe_IF_Error(Loader))
-    {
-        int Err = Pointer_TO_Error(Loader);
-        VfsClose(F);
-        return Err;
-    }
-
     if (Probe_IF_Error(__Proc__->Space) || !__Proc__->Space || __Proc__->Space->PhysicalBase == 0)
     {
         VfsClose(F);
         return -NotCanonical;
     }
 
-    VirtImage Img = {0};
-    Img.Space     = __Proc__->Space;
+    ELFImage Img = {0};
+    Img.Space    = __Proc__->Space;
 
-    VirtRequest Req = {.Path = __Path__, .File = F, .Argv = __Argv__, .Envp = __Envp__, .Hints = 0};
-    if (VirtLoad(&Req, &Img) != SysOkay)
-    {
-        VfsClose(F);
-        return -ErrReturn;
-    }
-
-    /*TODO: Make commit do something probably*/
-    if (VirtCommit(&Img) != SysOkay)
+    if (Elf64Load(F, __Proc__->Space, &Img) != SysOkay)
     {
         VfsClose(F);
         return -ErrReturn;
@@ -245,25 +231,25 @@ PosixProcExecve(PosixProc*         __Proc__,
     VfsClose(F);
 
     uint64_t UserSp = 0;
-    if (VirtSetupStack(__Proc__->Space, __Argv__, __Envp__, /*Nx*/ 1, &UserSp) == Nothing)
+    if (SetStack(__Proc__->Space, __Argv__, __Envp__, /*Nx*/ 1, &UserSp) == Nothing)
     {
         return -ErrReturn;
     }
 
     if (Probe_IF_Error(__Proc__->MainThread) || !__Proc__->MainThread)
     {
-        Thread* Th = CreateThread(ThreadTypeUser, (void*)Img.Entry, NULL, ThreadPrioritykernel);
+        Thread* Th = CreateThread(ThreadTypeUser, (void*)Img.Entry, NULL, ThreadPriorityNormal);
         if (Probe_IF_Error(Th) || !Th)
         {
             return -BadEntity;
         }
 
-        Th->Context.Rip   = Img.Entry;
-        Th->Context.Rsp   = UserSp;
-        Th->Type          = ThreadTypeUser;
-        Th->State         = ThreadStateReady;
-        Th->PageDirectory = (uint64_t)__Proc__->Space->PhysicalBase;
-        Th->ProcessId     = __Proc__->Pid;
+        ATOMIC_STORE(Th->Context.Rip, Img.Entry);
+        ATOMIC_STORE(Th->Context.Rsp, UserSp);
+        ATOMIC_STORE(Th->Type, ThreadTypeUser);
+        ATOMIC_STORE(Th->State, ThreadStateReady);
+        ATOMIC_STORE(Th->PageDirectory, (uint64_t)__Proc__->Space->PhysicalBase);
+        ATOMIC_STORE(Th->ProcessId, __Proc__->Pid);
 
         if (__AttachThread__(__Proc__, Th) != SysOkay)
         {
@@ -272,38 +258,38 @@ PosixProcExecve(PosixProc*         __Proc__,
         }
 
         PDebug("Thread RIP=0x%llx RSP=0x%llx PD=0x%llx\n",
-               (unsigned long long)Th->Context.Rip,
-               (unsigned long long)Th->Context.Rsp,
-               (unsigned long long)Th->PageDirectory);
+               (unsigned long long)ATOMIC_LOAD(Th->Context.Rip),
+               (unsigned long long)ATOMIC_LOAD(Th->Context.Rsp),
+               (unsigned long long)ATOMIC_LOAD(Th->PageDirectory));
     }
     else
     {
         Thread* Th = __Proc__->MainThread;
         /* thread is in a reusable state */
-        if (Th->State == ThreadStateTerminated || Th->State == ThreadStateZombie)
+        if (ATOMIC_LOAD(Th->State) == ThreadStateTerminated ||
+            ATOMIC_LOAD(Th->State) == ThreadStateZombie)
         {
             return -Dangling;
         }
 
-        Th->Context.Rip   = Img.Entry;
-        Th->Context.Rsp   = UserSp;
-        Th->Type          = ThreadTypeUser;
-        Th->State         = ThreadStateReady;
-        Th->PageDirectory = (uint64_t)__Proc__->Space->PhysicalBase;
-        Th->ProcessId     = __Proc__->Pid;
+        ATOMIC_STORE(Th->Context.Rip, Img.Entry);
+        ATOMIC_STORE(Th->Context.Rsp, UserSp);
+        ATOMIC_STORE(Th->Type, ThreadTypeUser);
+        ATOMIC_STORE(Th->State, ThreadStateReady);
+        ATOMIC_STORE(Th->PageDirectory, (uint64_t)__Proc__->Space->PhysicalBase);
+        ATOMIC_STORE(Th->ProcessId, __Proc__->Pid);
 
         PDebug("Thread RIP=0x%llx RSP=0x%llx PD=0x%llx\n",
-               (unsigned long long)Th->Context.Rip,
-               (unsigned long long)Th->Context.Rsp,
-               (unsigned long long)Th->PageDirectory);
+               (unsigned long long)ATOMIC_LOAD(Th->Context.Rip),
+               (unsigned long long)ATOMIC_LOAD(Th->Context.Rsp),
+               (unsigned long long)ATOMIC_LOAD(Th->PageDirectory));
     }
 
     /* Reset process status */
-    __Proc__->Zombie   = 0;
-    __Proc__->ExitCode = 0;
+    ATOMIC_STORE(__Proc__->Zombie, 0);
+    ATOMIC_STORE(__Proc__->ExitCode, 0);
 
     PSuccess("New Process executed with PID=%ld '%s'\n", __Proc__->Pid, __Path__);
-
     ThreadExecute(__Proc__->MainThread, Error);
     return SysOkay;
 }
@@ -321,11 +307,11 @@ PosixFork(PosixProc* __Parent__, PosixProc** __OutChild__)
         !__OutChild__ || Probe_IF_Error(__Parent__->MainThread) || !__Parent__->MainThread ||
         Probe_IF_Error(__Parent__->Space) || !__Parent__->Space)
     {
-        return -1;
+        return -BadArgs;
     }
 
-    uint64_t __ParentRip__ = __Parent__->MainThread->Context.Rip;
-    uint64_t __ParentRsp__ = __Parent__->MainThread->Context.Rsp;
+    uint64_t __ParentRip__ = ATOMIC_LOAD(__Parent__->MainThread->Context.Rip);
+    uint64_t __ParentRsp__ = ATOMIC_LOAD(__Parent__->MainThread->Context.Rsp);
     if (!__IsUserVa__(__ParentRip__) || !__IsUserVa__(__ParentRsp__))
     {
         return -NotCanonical;
@@ -351,7 +337,8 @@ PosixFork(PosixProc* __Parent__, PosixProc** __OutChild__)
     }
 
     Thread* Pth = __Parent__->MainThread;
-    Thread* Cth = CreateThread(ThreadTypeUser, (void*)__ParentRip__, NULL, Pth->Priority);
+    Thread* Cth =
+        CreateThread(ThreadTypeUser, (void*)__ParentRip__, NULL, ATOMIC_LOAD(Pth->Priority));
     if (Probe_IF_Error(Cth) || !Cth)
     {
         PosixExit(Child, -1);
@@ -359,17 +346,17 @@ PosixFork(PosixProc* __Parent__, PosixProc** __OutChild__)
     }
 
     /* Copy parent context, adjust for child */
-    Cth->Context        = Pth->Context;
-    Cth->Context.Rax    = 0; /* fork return value in child */
-    Cth->Context.Rip    = __ParentRip__;
-    Cth->Context.Rsp    = __ParentRsp__;
-    Cth->Context.Cs     = UserCodeSelector;
-    Cth->Context.Ss     = UserDataSelector;
-    Cth->Context.Rflags = 0x202;
-    Cth->Type           = ThreadTypeUser;
-    Cth->State          = ThreadStateReady;
-    Cth->PageDirectory  = (uint64_t)Child->Space->PhysicalBase;
-    Cth->ProcessId      = (uint32_t)Child->Pid;
+    Cth->Context = Pth->Context;
+    ATOMIC_STORE(Cth->Context.Rax, 0); /* fork return value in child */
+    ATOMIC_STORE(Cth->Context.Rip, __ParentRip__);
+    ATOMIC_STORE(Cth->Context.Rsp, __ParentRsp__);
+    ATOMIC_STORE(Cth->Context.Cs, UserCodeSelector);
+    ATOMIC_STORE(Cth->Context.Ss, UserDataSelector);
+    ATOMIC_STORE(Cth->Context.Rflags, 0x202);
+    ATOMIC_STORE(Cth->Type, ThreadTypeUser);
+    ATOMIC_STORE(Cth->State, ThreadStateReady);
+    ATOMIC_STORE(Cth->PageDirectory, (uint64_t)Child->Space->PhysicalBase);
+    ATOMIC_STORE(Cth->ProcessId, (uint32_t)Child->Pid);
 
     SysErr  err;
     SysErr* Error = &err;
@@ -443,7 +430,7 @@ PosixFork(PosixProc* __Parent__, PosixProc** __OutChild__)
                         __Leaf__ & (PTEWRITABLE | PTEUSER | PTEPRESENT | PTEWRITETHROUGH |
                                     PTECACHEDISABLE | PTEACCESSED | PTEDIRTY | PTENOEXECUTE);
 
-                    VirtMapPage(Child->Space, __Va__, __NewPhys__, __Flags__);
+                    MapPage(Child->Space, __Va__, __NewPhys__, __Flags__);
                 }
             }
         }
@@ -460,8 +447,8 @@ PosixFork(PosixProc* __Parent__, PosixProc** __OutChild__)
 
     PDebug("Forked child with PID=%ld and context RIP=0x%llx and RSP=0x%llx\n",
            Child->Pid,
-           (unsigned long long)Cth->Context.Rip,
-           (unsigned long long)Cth->Context.Rsp);
+           (unsigned long long)ATOMIC_LOAD(Cth->Context.Rip),
+           (unsigned long long)ATOMIC_LOAD(Cth->Context.Rsp));
 
     ThreadExecute(Cth, Error);
     return Child->Pid;
@@ -478,18 +465,16 @@ PosixExit(PosixProc* __Proc__, int __Status__)
     SysErr  err;
     SysErr* Error = &err;
 
-    __Proc__->ExitCode = __Status__;
-    __Proc__->Zombie   = 1;
+    ATOMIC_STORE(__Proc__->ExitCode, __Status__);
+    ATOMIC_STORE(__Proc__->Zombie, 1);
 
     __UpdateTimesOnExit__(__Proc__);
-
-    AcquireSpinLock(&ThreadListLock, Error);
 
     /* clear per-CPU current thread references */
     for (uint32_t CpuIndex = 0; CpuIndex < MaxCPUs; CpuIndex++)
     {
         Thread* Ct = CurrentThreads[CpuIndex];
-        if (Ct && (long)Ct->ProcessId == __Proc__->Pid)
+        if (Ct && (long)ATOMIC_LOAD(Ct->ProcessId) == __Proc__->Pid)
         {
             CurrentThreads[CpuIndex] = NULL;
         }
@@ -497,13 +482,15 @@ PosixExit(PosixProc* __Proc__, int __Status__)
 
     __DetachThread__(__Proc__);
 
+    AcquireSpinLock(&ThreadListLock, Error);
+
     Thread* ThreadPtr = ThreadList;
     while (ThreadPtr)
     {
         Thread* NextThread = ThreadPtr->Next;
-        if ((long)ThreadPtr->ProcessId == __Proc__->Pid)
+        if ((long)ATOMIC_LOAD(ThreadPtr->ProcessId) == __Proc__->Pid)
         {
-            ThreadPtr->State = ThreadStateTerminated;
+            ATOMIC_STORE(ThreadPtr->State, ThreadStateTerminated);
             DestroyThread(ThreadPtr, Error);
             PSuccess("Destroyed ThreadId=%u of Pid=%u\n", ThreadPtr->ThreadId, __Proc__->Pid);
         }
@@ -541,7 +528,7 @@ PosixWait4(PosixProc*   __Parent__,
         for (long I = 1; I <= MaxProcs; I++)
         {
             PosixProc* P = PosixFind(I);
-            if (Probe_IF_Error(P) || !P || P->Ppid != __Parent__->Pid)
+            if (Probe_IF_Error(P) || !P || ATOMIC_LOAD(P->Ppid) != __Parent__->Pid)
             {
                 continue;
             }
@@ -550,16 +537,16 @@ PosixWait4(PosixProc*   __Parent__,
                 continue;
             }
 
-            if (P->Zombie)
+            if (ATOMIC_LOAD(P->Zombie))
             {
                 if (__OutStatus__)
                 {
-                    *__OutStatus__ = P->ExitCode;
+                    *__OutStatus__ = ATOMIC_LOAD(P->ExitCode);
                 }
                 if (__OutUsage__)
                 {
-                    __OutUsage__->UtimeUsec       = P->Times.UserUsec;
-                    __OutUsage__->StimeUsec       = P->Times.SysUsec;
+                    __OutUsage__->UtimeUsec       = ATOMIC_LOAD(P->Times.UserUsec);
+                    __OutUsage__->StimeUsec       = ATOMIC_LOAD(P->Times.SysUsec);
                     __OutUsage__->MaxRss          = RlimitMaxRss;
                     __OutUsage__->MinorFaults     = 0;
                     __OutUsage__->MajorFaults     = 0;
@@ -585,8 +572,8 @@ PosixWait4(PosixProc*   __Parent__,
 
         if (__Parent__->MainThread)
         {
-            __Parent__->MainThread->State      = ThreadStateBlocked;
-            __Parent__->MainThread->WaitReason = WaitReasonChild;
+            ATOMIC_STORE(__Parent__->MainThread->State, ThreadStateBlocked);
+            ATOMIC_STORE(__Parent__->MainThread->WaitReason, WaitReasonChild);
         }
         SysErr  err;
         SysErr* Error = &err;
@@ -601,8 +588,8 @@ PosixSetSid(PosixProc* __Proc__)
     {
         return -BadArgs;
     }
-    __Proc__->Sid  = __Proc__->Pid;
-    __Proc__->Pgrp = __Proc__->Pid;
+    ATOMIC_STORE(__Proc__->Sid, __Proc__->Pid);
+    ATOMIC_STORE(__Proc__->Pgrp, __Proc__->Pid);
     return SysOkay;
 }
 
@@ -613,29 +600,29 @@ PosixSetPgrp(PosixProc* __Proc__, long __Pgid__)
     {
         return -BadArgs;
     }
-    __Proc__->Pgrp = __Pgid__;
+    ATOMIC_STORE(__Proc__->Pgrp, __Pgid__);
     return SysOkay;
 }
 
 int
 PosixGetPid(PosixProc* __Proc__)
 {
-    return __Proc__ ? (int)__Proc__->Pid : -NotCanonical;
+    return __Proc__ ? (int)ATOMIC_LOAD(__Proc__->Pid) : -NotCanonical;
 }
 int
 PosixGetPpid(PosixProc* __Proc__)
 {
-    return __Proc__ ? (int)__Proc__->Ppid : -NotCanonical;
+    return __Proc__ ? (int)ATOMIC_LOAD(__Proc__->Ppid) : -NotCanonical;
 }
 int
 PosixGetPgrp(PosixProc* __Proc__)
 {
-    return __Proc__ ? (int)__Proc__->Pgrp : -NotCanonical;
+    return __Proc__ ? (int)ATOMIC_LOAD(__Proc__->Pgrp) : -NotCanonical;
 }
 int
 PosixGetSid(PosixProc* __Proc__)
 {
-    return __Proc__ ? (int)__Proc__->Sid : -NotCanonical;
+    return __Proc__ ? (int)ATOMIC_LOAD(__Proc__->Sid) : -NotCanonical;
 }
 
 int
@@ -682,7 +669,7 @@ PosixSetUmask(PosixProc* __Proc__, long __Mask__)
     {
         return -BadEntity;
     }
-    __Proc__->Cred.Umask = __Mask__ & 0777;
+    ATOMIC_STORE(__Proc__->Cred.Umask, (__Mask__ & 0777));
     return SysOkay;
 }
 
@@ -714,7 +701,7 @@ PosixKill(long __Pid__, int __Sig__)
         return -NoSuch;
     }
     /* Enqueue signal bit */
-    P->SigPending |= (1ULL << (__Sig__ & 63));
+    ATOMIC_FETCH_OR(P->SigPending, (1ULL << (__Sig__ & 63)));
     return SysOkay;
 }
 
@@ -727,7 +714,7 @@ PosixTkill(long __Tid__, int __Sig__)
     {
         return -BadEntity;
     }
-    return PosixKill((long)Th->ProcessId, __Sig__);
+    return PosixKill((long)ATOMIC_LOAD(Th->ProcessId), __Sig__);
 }
 
 int
@@ -748,7 +735,7 @@ PosixSigaction(int __Sig__, const PosixSigAction* __Act__, PosixSigAction* __Old
     if (__OldAct__)
     {
         __OldAct__->Handler = (PosixSigHandler)P->MainThread->SignalHandlers[__Sig__];
-        __OldAct__->Mask    = P->SigMask;
+        __OldAct__->Mask    = ATOMIC_LOAD(P->SigMask);
         __OldAct__->Flags   = 0;
     }
 
@@ -756,7 +743,7 @@ PosixSigaction(int __Sig__, const PosixSigAction* __Act__, PosixSigAction* __Old
     if (__Act__)
     {
         P->MainThread->SignalHandlers[__Sig__] = (void*)__Act__->Handler;
-        P->SigMask                             = __Act__->Mask;
+        ATOMIC_STORE(P->SigMask, __Act__->Mask);
     }
 
     return SysOkay;
@@ -772,7 +759,7 @@ PosixSigprocmask(int __How__, const uint64_t* __Set__, uint64_t* __OldSet__)
     }
     if (__OldSet__)
     {
-        *__OldSet__ = P->SigMask;
+        *__OldSet__ = ATOMIC_LOAD(P->SigMask);
     }
     if (Probe_IF_Error(__Set__) || !__Set__)
     {
@@ -782,15 +769,17 @@ PosixSigprocmask(int __How__, const uint64_t* __Set__, uint64_t* __OldSet__)
     /* 0=BLOCK, 1=UNBLOCK, 2=SETMASK */
     if (__How__ == 0)
     {
-        P->SigMask |= *(__Set__);
+        uint64_t cur = ATOMIC_LOAD(P->SigMask);
+        ATOMIC_STORE(P->SigMask, (cur | *(__Set__)));
     }
     else if (__How__ == 1)
     {
-        P->SigMask &= ~(*__Set__);
+        uint64_t cur = ATOMIC_LOAD(P->SigMask);
+        ATOMIC_STORE(P->SigMask, (cur & ~(*__Set__)));
     }
     else if (__How__ == 2)
     {
-        P->SigMask = *(__Set__);
+        ATOMIC_STORE(P->SigMask, *(__Set__));
     }
     return SysOkay;
 }
@@ -808,7 +797,7 @@ PosixSigpending(uint64_t* __OutMask__)
         *__OutMask__ = 0;
         return SysOkay;
     }
-    *__OutMask__ = P->SigPending;
+    *__OutMask__ = ATOMIC_LOAD(P->SigPending);
     return SysOkay;
 }
 
@@ -851,10 +840,11 @@ PosixFind(long __Pid__)
     {
         return Error_TO_Pointer(-BadArgs);
     }
-    for (long I = 0; I < PosixProcs.Count; I++)
+    long count = PosixProcs.Count; /* benign read */
+    for (long I = 0; I < count; I++)
     {
         PosixProc* P = PosixProcs.Items[I];
-        if (P && P->Pid == __Pid__)
+        if (P && ATOMIC_LOAD(P->Pid) == __Pid__)
         {
             return P;
         }
@@ -870,8 +860,8 @@ __CreateTableIfNeeded__(void)
         return SysOkay;
     }
 
-    PosixProcs.Cap   = MaxProcs;
-    PosixProcs.Count = 0;
+    PosixProcs.Cap = MaxProcs;
+    ATOMIC_STORE(PosixProcs.Count, 0);
     PosixProcs.Items = (PosixProc**)KMalloc(sizeof(PosixProc*) * (size_t)PosixProcs.Cap);
     if (!PosixProcs.Items)
     {
@@ -887,10 +877,11 @@ static long
 __FindFreePid__(void)
 {
     /* Naive monotonic PID allocation */
-    long pid = __NextPid__++;
+    long pid = ATOMIC_FETCH_ADD(__NextPid__, 1);
     if (pid <= 0)
     {
-        pid = (__NextPid__ = 1);
+        ATOMIC_STORE(__NextPid__, 1);
+        pid = 1;
     }
     return pid;
 }
@@ -901,12 +892,14 @@ __TableInsert__(PosixProc* __Proc__)
     SysErr  err;
     SysErr* Error = &err;
     AcquireSpinLock(&PosixProcs.Lock, Error);
-    if (PosixProcs.Count >= PosixProcs.Cap)
+    long count = ATOMIC_LOAD(PosixProcs.Count);
+    if (count >= PosixProcs.Cap)
     {
         ReleaseSpinLock(&PosixProcs.Lock, Error);
         return -TooMany;
     }
-    PosixProcs.Items[PosixProcs.Count++] = __Proc__;
+    PosixProcs.Items[count] = __Proc__;
+    ATOMIC_STORE(PosixProcs.Count, count + 1);
     ReleaseSpinLock(&PosixProcs.Lock, Error);
     return SysOkay;
 }
@@ -917,8 +910,9 @@ __TableRemove__(PosixProc* __Proc__)
     SysErr  err;
     SysErr* Error = &err;
     AcquireSpinLock(&PosixProcs.Lock, Error);
-    long idx = -1;
-    for (long I = 0; I < PosixProcs.Count; I++)
+    long idx   = -1;
+    long count = ATOMIC_LOAD(PosixProcs.Count);
+    for (long I = 0; I < count; I++)
     {
         if (PosixProcs.Items[I] == __Proc__)
         {
@@ -928,9 +922,9 @@ __TableRemove__(PosixProc* __Proc__)
     }
     if (idx >= 0)
     {
-        PosixProcs.Items[idx]                  = PosixProcs.Items[PosixProcs.Count - 1];
-        PosixProcs.Items[PosixProcs.Count - 1] = NULL;
-        PosixProcs.Count--;
+        PosixProcs.Items[idx]       = PosixProcs.Items[count - 1];
+        PosixProcs.Items[count - 1] = NULL;
+        ATOMIC_STORE(PosixProcs.Count, count - 1);
     }
     ReleaseSpinLock(&PosixProcs.Lock, Error);
     return SysOkay;
@@ -966,9 +960,9 @@ __AllocProc__(void)
         KFree(P, Error);
         return Error_TO_Pointer(-BadAlloc);
     }
-    P->CmdlineLen = 0;
-    P->EnvironLen = 0;
-    P->Comm[0]    = '\0';
+    ATOMIC_STORE(P->CmdlineLen, 0);
+    ATOMIC_STORE(P->EnvironLen, 0);
+    P->Comm[0] = '\0';
     return P;
 }
 
@@ -989,9 +983,9 @@ __FreeProc__(PosixProc* __Proc__, SysErr* __Err__)
         for (long I = 0; I < __Proc__->Fds->Cap; I++)
         {
             PosixFd* E = &__Proc__->Fds->Entries[I];
-            if (E->Fd >= 0)
+            if (ATOMIC_LOAD(E->Fd) >= 0)
             {
-                PosixClose(__Proc__->Fds, (int)E->Fd);
+                PosixClose(__Proc__->Fds, (int)ATOMIC_LOAD(E->Fd));
             }
         }
         KFree(__Proc__->Fds->Entries, __Err__);
@@ -1026,8 +1020,8 @@ __AttachThread__(PosixProc* __Proc__, Thread* __Th__)
         return -BadArgs;
     }
     __Proc__->MainThread = __Th__;
-    __Th__->ProcessId    = (uint32_t)__Proc__->Pid;
-    __Th__->State        = ThreadStateReady;
+    ATOMIC_STORE(__Th__->ProcessId, (uint32_t)__Proc__->Pid);
+    ATOMIC_STORE(__Th__->State, ThreadStateReady);
     return SysOkay;
 }
 static int
@@ -1042,7 +1036,8 @@ __DetachThread__(PosixProc* __Proc__)
     {
         SysErr  err;
         SysErr* Error = &err;
-        Th->State     = ThreadStateTerminated; /*Sceduler will automatically remove from ready*/
+        ATOMIC_STORE(Th->State,
+                     ThreadStateTerminated); /*Scheduler will automatically remove from ready*/
         DestroyThread(Th, Error);
         __Proc__->MainThread = NULL;
     }
@@ -1061,12 +1056,12 @@ __ForkCopyFds__(PosixProc* __Parent__, PosixProc* __Child__)
     SysErr  err;
     SysErr* Error = &err;
 
-    __Child__->SigMask         = __Parent__->SigMask;
-    __Child__->SigPending      = 0;
-    __Child__->MainThread      = NULL;
-    __Child__->Times.UserUsec  = 0;
-    __Child__->Times.SysUsec   = 0;
-    __Child__->Times.StartTick = __Parent__->Times.StartTick;
+    ATOMIC_STORE(__Child__->SigMask, ATOMIC_LOAD(__Parent__->SigMask));
+    ATOMIC_STORE(__Child__->SigPending, 0);
+    __Child__->MainThread = NULL;
+    ATOMIC_STORE(__Child__->Times.UserUsec, 0);
+    ATOMIC_STORE(__Child__->Times.SysUsec, 0);
+    ATOMIC_STORE(__Child__->Times.StartTick, ATOMIC_LOAD(__Parent__->Times.StartTick));
 
     __Child__->Fds = (PosixFdTable*)KMalloc(sizeof(PosixFdTable));
     if (Probe_IF_Error(__Child__->Fds) || !__Child__->Fds)
@@ -1084,7 +1079,7 @@ __ForkCopyFds__(PosixProc* __Parent__, PosixProc* __Child__)
     for (long I = 0; I < __Parent__->Fds->Cap; I++)
     {
         PosixFd* E = &__Parent__->Fds->Entries[I];
-        if (E->Fd < 0)
+        if (ATOMIC_LOAD(E->Fd) < 0)
         {
             continue;
         }
@@ -1095,35 +1090,40 @@ __ForkCopyFds__(PosixProc* __Parent__, PosixProc* __Child__)
             return -TooLess;
         }
 
-        __Child__->Fds->Entries[NewFd]    = *E;
-        __Child__->Fds->Entries[NewFd].Fd = NewFd;
-        __Child__->Fds->Entries[NewFd].Refcnt++;
+        __Child__->Fds->Entries[NewFd] = *E;
+        ATOMIC_STORE(__Child__->Fds->Entries[NewFd].Fd, NewFd);
+        ATOMIC_FETCH_ADD(__Child__->Fds->Entries[NewFd].Refcnt, 1);
 
-        if (__Child__->Fds->Entries[NewFd].IsFile && __Child__->Fds->Entries[NewFd].Obj)
+        if (ATOMIC_LOAD(__Child__->Fds->Entries[NewFd].IsFile) &&
+            __Child__->Fds->Entries[NewFd].Obj)
         {
-            ((File*)__Child__->Fds->Entries[NewFd].Obj)->Refcnt++;
+            ATOMIC_FETCH_ADD(((File*)__Child__->Fds->Entries[NewFd].Obj)->Refcnt, 1);
         }
 
-        __Child__->Fds->Count++;
+        ATOMIC_FETCH_ADD(__Child__->Fds->Count, 1);
     }
 
-    __Child__->Fds->StdinFd  = __Parent__->Fds->StdinFd;
-    __Child__->Fds->StdoutFd = __Parent__->Fds->StdoutFd;
-    __Child__->Fds->StderrFd = __Parent__->Fds->StderrFd;
+    ATOMIC_STORE(__Child__->Fds->StdinFd, ATOMIC_LOAD(__Parent__->Fds->StdinFd));
+    ATOMIC_STORE(__Child__->Fds->StdoutFd, ATOMIC_LOAD(__Parent__->Fds->StdoutFd));
+    ATOMIC_STORE(__Child__->Fds->StderrFd, ATOMIC_LOAD(__Parent__->Fds->StderrFd));
 
     /* Comm, cmdline, environ (bounded copy) */
     strcpy(__Child__->Comm, __Parent__->Comm, (uint32_t)sizeof(__Child__->Comm));
 
-    __Child__->CmdlineLen = __Min__(__Parent__->CmdlineLen, 4096);
-    __Child__->EnvironLen = __Min__(__Parent__->EnvironLen, 8192);
+    ATOMIC_STORE(__Child__->CmdlineLen, __Min__(ATOMIC_LOAD(__Parent__->CmdlineLen), 4096));
+    ATOMIC_STORE(__Child__->EnvironLen, __Min__(ATOMIC_LOAD(__Parent__->EnvironLen), 8192));
 
-    if (__Child__->CmdlineLen > 0 && __Child__->CmdlineBuf && __Parent__->CmdlineBuf)
+    if (ATOMIC_LOAD(__Child__->CmdlineLen) > 0 && __Child__->CmdlineBuf && __Parent__->CmdlineBuf)
     {
-        memcpy(__Child__->CmdlineBuf, __Parent__->CmdlineBuf, (size_t)__Child__->CmdlineLen);
+        memcpy(__Child__->CmdlineBuf,
+               __Parent__->CmdlineBuf,
+               (size_t)ATOMIC_LOAD(__Child__->CmdlineLen));
     }
-    if (__Child__->EnvironLen > 0 && __Child__->EnvironBuf && __Parent__->EnvironBuf)
+    if (ATOMIC_LOAD(__Child__->EnvironLen) > 0 && __Child__->EnvironBuf && __Parent__->EnvironBuf)
     {
-        memcpy(__Child__->EnvironBuf, __Parent__->EnvironBuf, (size_t)__Child__->EnvironLen);
+        memcpy(__Child__->EnvironBuf,
+               __Parent__->EnvironBuf,
+               (size_t)ATOMIC_LOAD(__Child__->EnvironLen));
     }
 
     return SysOkay;
@@ -1152,33 +1152,59 @@ __SetDefaultFds__(PosixProc* __Proc__)
         return -NotInit;
     }
 
-    const char* TtyPath  = "/dev/tty0";
+    const char* TtyPath  = "/dev/tty0"; /*TODO: not be hardcoded*/
     const char* NullPath = "/dev/null";
+    int         StdinFd;
+    int         StdoutFd;
+    int         StderrFd;
 
-    int StdinFd  = VfsExists(TtyPath) ? PosixOpen(__Proc__->Fds, TtyPath, VFlgRDONLY, 0)
-                                      : PosixOpen(__Proc__->Fds, NullPath, VFlgRDONLY, 0);
-    int StdoutFd = VfsExists(TtyPath) ? PosixOpen(__Proc__->Fds, TtyPath, VFlgWRONLY, 0)
-                                      : PosixOpen(__Proc__->Fds, NullPath, VFlgWRONLY, 0);
-    int StderrFd = VfsExists(TtyPath) ? PosixOpen(__Proc__->Fds, TtyPath, VFlgWRONLY, 0)
-                                      : PosixOpen(__Proc__->Fds, NullPath, VFlgWRONLY, 0);
+    /* stdin */
+    if (VfsExists(TtyPath) == SysOkay)
+    {
+        StdinFd = PosixOpen(__Proc__->Fds, TtyPath, VFlgRDONLY, 0);
+    }
+    else
+    {
+        StdinFd = PosixOpen(__Proc__->Fds, NullPath, VFlgRDONLY, 0);
+    }
+
+    /* stdout */
+    if (VfsExists(TtyPath) == SysOkay)
+    {
+        StdoutFd = PosixOpen(__Proc__->Fds, TtyPath, VFlgWRONLY, 0);
+    }
+    else
+    {
+        StdoutFd = PosixOpen(__Proc__->Fds, NullPath, VFlgWRONLY, 0);
+    }
+
+    /* stderr */
+    if (VfsExists(TtyPath) == SysOkay)
+    {
+        StderrFd = PosixOpen(__Proc__->Fds, TtyPath, VFlgWRONLY, 0);
+    }
+    else
+    {
+        StderrFd = PosixOpen(__Proc__->Fds, NullPath, VFlgWRONLY, 0);
+    }
 
     if (StdinFd < 0 || StdoutFd < 0 || StderrFd < 0)
     {
         return -TooLess;
     }
 
-    __Proc__->Fds->StdinFd  = StdinFd;
-    __Proc__->Fds->StdoutFd = StdoutFd;
-    __Proc__->Fds->StderrFd = StderrFd;
+    ATOMIC_STORE(__Proc__->Fds->StdinFd, StdinFd);
+    ATOMIC_STORE(__Proc__->Fds->StdoutFd, StdoutFd);
+    ATOMIC_STORE(__Proc__->Fds->StderrFd, StderrFd);
 
     if (VfsExists(TtyPath))
     {
-        __Proc__->TtyFd   = StdinFd;
+        ATOMIC_STORE(__Proc__->TtyFd, StdinFd);
         __Proc__->TtyName = "tty0";
     }
     else
     {
-        __Proc__->TtyFd   = -1;
+        ATOMIC_STORE(__Proc__->TtyFd, -1);
         __Proc__->TtyName = NULL;
     }
 
@@ -1227,7 +1253,7 @@ __BuildArgsEnv__(const char* const* __Argv__,
     }
 
     /* Build NUL-separated cmdline */
-    __Proc__->CmdlineLen = 0;
+    ATOMIC_STORE(__Proc__->CmdlineLen, 0);
     if (__Argv__)
     {
         long OffSec = 0;
@@ -1245,16 +1271,16 @@ __BuildArgsEnv__(const char* const* __Argv__,
             OffSec += C;
             __Proc__->CmdlineBuf[OffSec++] = '\0';
         }
-        __Proc__->CmdlineLen = OffSec;
+        ATOMIC_STORE(__Proc__->CmdlineLen, OffSec);
         if (OffSec < 4096)
         {
             __Proc__->CmdlineBuf[OffSec++] = '\0';
-            __Proc__->CmdlineLen           = OffSec;
+            ATOMIC_STORE(__Proc__->CmdlineLen, OffSec);
         }
     }
 
     /* Build NUL-separated environ */
-    __Proc__->EnvironLen = 0;
+    ATOMIC_STORE(__Proc__->EnvironLen, 0);
     if (__Envp__)
     {
         long OffSec = 0;
@@ -1272,11 +1298,11 @@ __BuildArgsEnv__(const char* const* __Argv__,
             OffSec += C;
             __Proc__->EnvironBuf[OffSec++] = '\0';
         }
-        __Proc__->EnvironLen = OffSec;
+        ATOMIC_STORE(__Proc__->EnvironLen, OffSec);
         if (OffSec < 8192)
         {
             __Proc__->EnvironBuf[OffSec++] = '\0';
-            __Proc__->EnvironLen           = OffSec;
+            ATOMIC_STORE(__Proc__->EnvironLen, OffSec);
         }
     }
 
@@ -1286,18 +1312,19 @@ __BuildArgsEnv__(const char* const* __Argv__,
 static int
 __PopulateTimesStart__(PosixProc* __Proc__)
 {
-    __Proc__->Times.UserUsec  = 0;
-    __Proc__->Times.SysUsec   = 0;
-    __Proc__->Times.StartTick = GetSystemTicks();
+    ATOMIC_STORE(__Proc__->Times.UserUsec, 0);
+    ATOMIC_STORE(__Proc__->Times.SysUsec, 0);
+    ATOMIC_STORE(__Proc__->Times.StartTick, GetSystemTicks());
     return SysOkay;
 }
 
 static int
 __UpdateTimesOnExit__(PosixProc* __Proc__)
 {
-    uint64_t now = GetSystemTicks();
-    uint64_t dur = (now > __Proc__->Times.StartTick) ? (now - __Proc__->Times.StartTick) : 0;
-    __Proc__->Times.SysUsec += dur * 1000; /* pretend 1 tick = 1ms */
+    uint64_t now   = GetSystemTicks();
+    uint64_t start = ATOMIC_LOAD(__Proc__->Times.StartTick);
+    uint64_t dur   = (now > start) ? (now - start) : 0;
+    ATOMIC_FETCH_ADD(__Proc__->Times.SysUsec, dur * 1000); /* pretend 1 tick = 1ms */
     return SysOkay;
 }
 
@@ -1344,7 +1371,7 @@ __WakeParent__(PosixProc* __Parent__, PosixProc* __Child__, SysErr* __Err__)
         return;
     }
     /* Set SIGCHLD pending on parent */
-    __Parent__->SigPending |= (1ULL << (SigChld & 63));
+    ATOMIC_FETCH_OR(__Parent__->SigPending, (1ULL << (SigChld & 63)));
 }
 
 static int
@@ -1355,14 +1382,14 @@ __DeliverPendingSignals__(PosixProc* __Proc__)
         return -BadArgs;
     }
 
-    uint64_t pend = __Proc__->SigPending;
+    uint64_t pend = ATOMIC_LOAD(__Proc__->SigPending);
     if (pend == 0)
     {
         return SysOkay;
     }
 
     /* mask */
-    pend &= ~__Proc__->SigMask;
+    pend &= ~ATOMIC_LOAD(__Proc__->SigMask);
     if (pend == 0)
     {
         return SysOkay;
@@ -1373,9 +1400,9 @@ __DeliverPendingSignals__(PosixProc* __Proc__)
     {
         if (__Proc__->MainThread)
         {
-            __Proc__->MainThread->State = ThreadStateReady;
+            ATOMIC_STORE(__Proc__->MainThread->State, ThreadStateReady);
         }
-        __Proc__->SigPending &= ~(1ULL << (SigCont & 63));
+        ATOMIC_FETCH_AND(__Proc__->SigPending, ~(1ULL << (SigCont & 63)));
     }
 
     /* SIGSTOP blocks */
@@ -1383,10 +1410,10 @@ __DeliverPendingSignals__(PosixProc* __Proc__)
     {
         if (__Proc__->MainThread)
         {
-            __Proc__->MainThread->State      = ThreadStateBlocked;
-            __Proc__->MainThread->WaitReason = WaitReasonSignal;
+            ATOMIC_STORE(__Proc__->MainThread->State, ThreadStateBlocked);
+            ATOMIC_STORE(__Proc__->MainThread->WaitReason, WaitReasonSignal);
         }
-        __Proc__->SigPending &= ~(1ULL << (SigStop & 63));
+        ATOMIC_FETCH_AND(__Proc__->SigPending, ~(1ULL << (SigStop & 63)));
         return SysOkay;
     }
 
@@ -1402,34 +1429,35 @@ __DeliverPendingSignals__(PosixProc* __Proc__)
         if (__Proc__->MainThread && __Proc__->MainThread->SignalHandlers[S])
         {
             /* x86-64 SysV ABI: first arg RDI */
-            __Proc__->MainThread->Context.Rdi = (uint64_t)S;
-            __Proc__->MainThread->Context.Rip = (uint64_t)__Proc__->MainThread->SignalHandlers[S];
+            ATOMIC_STORE(__Proc__->MainThread->Context.Rdi, (uint64_t)S);
+            ATOMIC_STORE(__Proc__->MainThread->Context.Rip,
+                         (uint64_t)__Proc__->MainThread->SignalHandlers[S]);
 
-            __Proc__->SigPending &= ~bit;
+            ATOMIC_FETCH_AND(__Proc__->SigPending, ~bit);
         }
     }
 
     /* Default terminate for TERM/KILL/INT if still pending after handler pass */
-    if (__Proc__->SigPending & (1ULL << (SigTerm & 63)))
+    if (ATOMIC_LOAD(__Proc__->SigPending) & (1ULL << (SigTerm & 63)))
     {
-        __Proc__->SigPending &= ~(1ULL << (SigTerm & 63));
+        ATOMIC_FETCH_AND(__Proc__->SigPending, ~(1ULL << (SigTerm & 63)));
         PosixExit(__Proc__, 128 + SigTerm);
         return SysOkay;
     }
-    if (__Proc__->SigPending & (1ULL << (SigKill & 63)))
+    if (ATOMIC_LOAD(__Proc__->SigPending) & (1ULL << (SigKill & 63)))
     {
-        __Proc__->SigPending &= ~(1ULL << (SigKill & 63));
+        ATOMIC_FETCH_AND(__Proc__->SigPending, ~(1ULL << (SigKill & 63)));
         PosixExit(__Proc__, 128 + SigKill);
         return SysOkay;
     }
-    if (__Proc__->SigPending & (1ULL << (SigInt & 63)))
+    if (ATOMIC_LOAD(__Proc__->SigPending) & (1ULL << (SigInt & 63)))
     {
-        __Proc__->SigPending &= ~(1ULL << (SigInt & 63));
+        ATOMIC_FETCH_AND(__Proc__->SigPending, ~(1ULL << (SigInt & 63)));
         PosixExit(__Proc__, 128 + SigInt);
         return SysOkay;
     }
 
     /* delivered or ignored */
-    __Proc__->SigPending = 0;
+    ATOMIC_STORE(__Proc__->SigPending, 0);
     return SysOkay;
 }

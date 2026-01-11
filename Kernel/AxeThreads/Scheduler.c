@@ -1,9 +1,11 @@
-
 #include <AxeSchd.h>
+#include <AxeThreads.h>
 #include <IDT.h>
+#include <PerCPUData.h>
 #include <Sync.h>
 #include <Timer.h>
-// #define __SchdDBG
+
+/*Multilevel Feedback Queue Scheduler (sort of)*/
 
 CpuScheduler CpuSchedulers[MaxCPUs];
 
@@ -19,6 +21,52 @@ ThreadFxRestore(const void* __State__)
     __asm__ volatile("fxrstor %0" ::"m"(*(const char (*)[512])__State__));
 }
 
+static uint32_t
+FindHighestReadyPriority(CpuScheduler* __Schd__)
+{
+    for (uint32_t Prio = 0; Prio < PRIO_MAX; Prio++)
+    {
+        if (!PrioQueueIsEmpty(&__Schd__->ReadyQueues[Prio]))
+        {
+            return Prio;
+        }
+    }
+    return PRIO_MAX;
+}
+
+void
+AddThreadToPrioQueue(uint32_t __CpuId__, Thread* __ThreadPtr__, uint32_t __Prio__, SysErr* __Err__)
+{
+    if (__CpuId__ >= MaxCPUs || !__ThreadPtr__ || __Prio__ >= PRIO_MAX)
+    {
+        SlotError(__Err__, -BadArgs);
+        return;
+    }
+
+    CpuScheduler* Schd = &CpuSchedulers[__CpuId__];
+
+    __atomic_store_n(&__ThreadPtr__->State, ThreadStateReady, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&__ThreadPtr__->LastCpu, __CpuId__, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&__ThreadPtr__->Next, NULL, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&__ThreadPtr__->Prev, NULL, __ATOMIC_SEQ_CST);
+
+    PrioQueue* Q = &Schd->ReadyQueues[__Prio__];
+    PrioQueuePush(Q, __ThreadPtr__);
+
+    uint32_t Hi = __atomic_load_n(&Schd->HighestPrio, __ATOMIC_SEQ_CST);
+    if (__Prio__ < Hi)
+    {
+        __atomic_store_n(&Schd->HighestPrio, __Prio__, __ATOMIC_SEQ_CST);
+    }
+
+    uint64_t Ctx = __atomic_load_n(&__ThreadPtr__->ContextSwitches, __ATOMIC_SEQ_CST);
+    if (Ctx == 0)
+    {
+        __atomic_fetch_add(&Schd->ThreadCount, 1, __ATOMIC_SEQ_CST);
+    }
+    __atomic_fetch_add(&Schd->ReadyCount, 1, __ATOMIC_SEQ_CST);
+}
+
 void
 AddThreadToReadyQueue(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Err__)
 {
@@ -28,34 +76,8 @@ AddThreadToReadyQueue(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Err__
         return;
     }
 
-    CpuScheduler* Scheduler = &CpuSchedulers[__CpuId__];
-
-    __atomic_store_n(&__ThreadPtr__->State, ThreadStateReady, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&__ThreadPtr__->LastCpu, __CpuId__, __ATOMIC_SEQ_CST);
-    __ThreadPtr__->Next = NULL;
-    __ThreadPtr__->Prev = NULL;
-
-    AcquireSpinLock(&Scheduler->SchedulerLock, __Err__);
-
-    if (Probe_IF_Error(Scheduler->ReadyQueue) || !Scheduler->ReadyQueue)
-    {
-        Scheduler->ReadyQueue = __ThreadPtr__;
-    }
-    else
-    {
-        Thread* Tail = Scheduler->ReadyQueue;
-        while (Tail->Next)
-        {
-            Tail = Tail->Next;
-        }
-        Tail->Next          = __ThreadPtr__;
-        __ThreadPtr__->Prev = Tail;
-    }
-
-    /* increment while still holding the lock */
-    Scheduler->ReadyCount++;
-
-    ReleaseSpinLock(&Scheduler->SchedulerLock, __Err__);
+    uint32_t Prio = __atomic_load_n(&__ThreadPtr__->Priority, __ATOMIC_SEQ_CST);
+    AddThreadToPrioQueue(__CpuId__, __ThreadPtr__, Prio, __Err__);
 }
 
 Thread*
@@ -66,36 +88,41 @@ RemoveThreadFromReadyQueue(uint32_t __CpuId__)
         return Error_TO_Pointer(-BadArgs);
     }
 
-    CpuScheduler* Scheduler = &CpuSchedulers[__CpuId__];
+    CpuScheduler* Schd = &CpuSchedulers[__CpuId__];
 
-    SysErr  err;
-    SysErr* Error = &err;
-    AcquireSpinLock(&Scheduler->SchedulerLock, Error);
-
-    Thread* ThreadPtr = Scheduler->ReadyQueue;
-    if (Probe_IF_Error(ThreadPtr) || !ThreadPtr)
+    uint32_t Hi = __atomic_load_n(&Schd->HighestPrio, __ATOMIC_SEQ_CST);
+    if (Hi >= PRIO_MAX || PrioQueueIsEmpty(&Schd->ReadyQueues[Hi]))
     {
-        ReleaseSpinLock(&Scheduler->SchedulerLock, Error);
+        uint32_t NewHi = FindHighestReadyPriority(Schd);
+        __atomic_store_n(&Schd->HighestPrio, NewHi, __ATOMIC_SEQ_CST);
+        if (NewHi >= PRIO_MAX)
+        {
+            return Error_TO_Pointer(-Dangling);
+        }
+        Hi = NewHi;
+    }
+
+    PrioQueue* Q    = &Schd->ReadyQueues[Hi];
+    Thread*    Thrd = PrioQueuePop(Q);
+
+    if (!Thrd)
+    {
         return Error_TO_Pointer(-Dangling);
     }
 
-    Scheduler->ReadyQueue = ThreadPtr->Next;
-    if (ThreadPtr->Next)
+    if (PrioQueueIsEmpty(Q))
     {
-        ThreadPtr->Next->Prev = NULL;
+        uint32_t NewHi = FindHighestReadyPriority(Schd);
+        __atomic_store_n(&Schd->HighestPrio, NewHi, __ATOMIC_SEQ_CST);
     }
 
-    ThreadPtr->Next = NULL;
-    ThreadPtr->Prev = NULL;
-
-    /* decrement while still holding the lock */
-    if (Scheduler->ReadyCount > 0)
+    uint32_t Ready = __atomic_load_n(&Schd->ReadyCount, __ATOMIC_SEQ_CST);
+    if (Ready > 0)
     {
-        Scheduler->ReadyCount--;
+        __atomic_fetch_sub(&Schd->ReadyCount, 1, __ATOMIC_SEQ_CST);
     }
 
-    ReleaseSpinLock(&Scheduler->SchedulerLock, Error);
-    return ThreadPtr;
+    return Thrd;
 }
 
 void
@@ -107,18 +134,18 @@ AddThreadToWaitingQueue(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Err
         return;
     }
 
-    CpuScheduler* Scheduler = &CpuSchedulers[__CpuId__];
-
-    SysErr  err;
-    SysErr* Error = &err;
+    CpuScheduler* Schd = &CpuSchedulers[__CpuId__];
 
     __atomic_store_n(&__ThreadPtr__->State, ThreadStateBlocked, __ATOMIC_SEQ_CST);
-    AcquireSpinLock(&Scheduler->SchedulerLock, Error);
 
-    __ThreadPtr__->Next     = Scheduler->WaitingQueue;
-    Scheduler->WaitingQueue = __ThreadPtr__;
-
-    ReleaseSpinLock(&Scheduler->SchedulerLock, Error);
+    Thread* Skull = __atomic_load_n(&Schd->WaitingQueue, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&__ThreadPtr__->Next, Skull, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&__ThreadPtr__->Prev, NULL, __ATOMIC_SEQ_CST);
+    if (Skull)
+    {
+        __atomic_store_n(&Skull->Prev, __ThreadPtr__, __ATOMIC_SEQ_CST);
+    }
+    __atomic_store_n(&Schd->WaitingQueue, __ThreadPtr__, __ATOMIC_SEQ_CST);
 }
 
 void
@@ -130,19 +157,20 @@ AddThreadToZombieQueue(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Err_
         return;
     }
 
-    CpuScheduler* Scheduler = &CpuSchedulers[__CpuId__];
-
-    SysErr  err;
-    SysErr* Error = &err;
+    CpuScheduler* Schd = &CpuSchedulers[__CpuId__];
 
     __atomic_store_n(&__ThreadPtr__->State, ThreadStateZombie, __ATOMIC_SEQ_CST);
-    AcquireSpinLock(&Scheduler->SchedulerLock, __Err__);
 
-    __ThreadPtr__->Next    = Scheduler->ZombieQueue;
-    Scheduler->ZombieQueue = __ThreadPtr__;
+    Thread* Skull = __atomic_load_n(&Schd->ZombieQueue, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&__ThreadPtr__->Next, Skull, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&__ThreadPtr__->Prev, NULL, __ATOMIC_SEQ_CST);
+    if (Skull)
+    {
+        __atomic_store_n(&Skull->Prev, __ThreadPtr__, __ATOMIC_SEQ_CST);
+    }
+    __atomic_store_n(&Schd->ZombieQueue, __ThreadPtr__, __ATOMIC_SEQ_CST);
 
-    ReleaseSpinLock(&Scheduler->SchedulerLock, __Err__);
-    __atomic_fetch_sub(&Scheduler->ThreadCount, 1, __ATOMIC_SEQ_CST);
+    __atomic_fetch_sub(&Schd->ThreadCount, 1, __ATOMIC_SEQ_CST);
 }
 
 void
@@ -154,18 +182,55 @@ AddThreadToSleepingQueue(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Er
         return;
     }
 
-    CpuScheduler* Scheduler = &CpuSchedulers[__CpuId__];
-
-    SysErr  err;
-    SysErr* Error = &err;
+    CpuScheduler* Schd = &CpuSchedulers[__CpuId__];
 
     __atomic_store_n(&__ThreadPtr__->State, ThreadStateSleeping, __ATOMIC_SEQ_CST);
-    AcquireSpinLock(&Scheduler->SchedulerLock, Error);
 
-    __ThreadPtr__->Next      = Scheduler->SleepingQueue;
-    Scheduler->SleepingQueue = __ThreadPtr__;
+    Thread* Skull = __atomic_load_n(&Schd->SleepingQueue, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&__ThreadPtr__->Next, Skull, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&__ThreadPtr__->Prev, NULL, __ATOMIC_SEQ_CST);
+    if (Skull)
+    {
+        __atomic_store_n(&Skull->Prev, __ThreadPtr__, __ATOMIC_SEQ_CST);
+    }
+    __atomic_store_n(&Schd->SleepingQueue, __ThreadPtr__, __ATOMIC_SEQ_CST);
+}
 
-    ReleaseSpinLock(&Scheduler->SchedulerLock, Error);
+void
+RemoveThreadFromAllQueues(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Err__)
+{
+    if (__CpuId__ >= MaxCPUs || !__ThreadPtr__)
+    {
+        SlotError(__Err__, -BadArgs);
+        return;
+    }
+
+    CpuScheduler* Schd = &CpuSchedulers[__CpuId__];
+
+    for (uint32_t Prio = 0; Prio < PRIO_MAX; Prio++)
+    {
+        PrioQueue* Q = &Schd->ReadyQueues[Prio];
+        if (!PrioQueueIsEmpty(Q))
+        {
+            Thread* Current = __atomic_load_n(&Q->Head, __ATOMIC_SEQ_CST);
+            while (Current)
+            {
+                if (Current == __ThreadPtr__)
+                {
+                    PrioQueueRemove(Q, __ThreadPtr__, __Err__);
+                    __atomic_fetch_sub(&Schd->ReadyCount, 1, __ATOMIC_SEQ_CST);
+                    uint32_t Hi = __atomic_load_n(&Schd->HighestPrio, __ATOMIC_SEQ_CST);
+                    if (PrioQueueIsEmpty(Q) && Prio == Hi)
+                    {
+                        uint32_t NewHi = FindHighestReadyPriority(Schd);
+                        __atomic_store_n(&Schd->HighestPrio, NewHi, __ATOMIC_SEQ_CST);
+                    }
+                    return;
+                }
+                Current = __atomic_load_n(&Current->Next, __ATOMIC_SEQ_CST);
+            }
+        }
+    }
 }
 
 void
@@ -177,10 +242,13 @@ MigrateThreadToCpu(Thread* __ThreadPtr__, uint32_t __TargetCpuId__, SysErr* __Er
         return;
     }
 
-    /* Only migrate if thread is ready to run */
-    if (__ThreadPtr__->State == ThreadStateReady)
+    uint32_t CurrentCpu = __atomic_load_n(&__ThreadPtr__->LastCpu, __ATOMIC_SEQ_CST);
+
+    ThreadState ThrdSt = __atomic_load_n(&__ThreadPtr__->State, __ATOMIC_SEQ_CST);
+    if (ThrdSt == ThreadStateReady)
     {
-        __ThreadPtr__->LastCpu = __TargetCpuId__;
+        RemoveThreadFromAllQueues(CurrentCpu, __ThreadPtr__, __Err__);
+        __atomic_store_n(&__ThreadPtr__->LastCpu, __TargetCpuId__, __ATOMIC_SEQ_CST);
         AddThreadToReadyQueue(__TargetCpuId__, __ThreadPtr__, __Err__);
     }
 }
@@ -234,63 +302,57 @@ WakeupSleepingThreads(uint32_t __CpuId__, SysErr* __Err__)
         return;
     }
 
-    CpuScheduler* Scheduler    = &CpuSchedulers[__CpuId__];
-    uint64_t      CurrentTicks = GetSystemTicks();
+    CpuScheduler* Schd = &CpuSchedulers[__CpuId__];
+    uint64_t      Now  = GetSystemTicks();
 
-    AcquireSpinLock(&Scheduler->SchedulerLock, __Err__);
-
-    Thread* Current = Scheduler->SleepingQueue;
-    Thread* Prev    = NULL;
+    Thread* Current  = __atomic_load_n(&Schd->SleepingQueue, __ATOMIC_SEQ_CST);
+    Thread* Previous = NULL;
 
     while (Current)
     {
-        Thread* Next = Current->Next;
+        Thread* Next = __atomic_load_n(&Current->Next, __ATOMIC_SEQ_CST);
 
-        if (__atomic_load_n(&Current->WakeupTime, __ATOMIC_SEQ_CST) <= CurrentTicks)
+        uint64_t Wakey = __atomic_load_n(&Current->WakeupTime, __ATOMIC_SEQ_CST);
+        if (Wakey && Wakey <= Now)
         {
-            /* unlink from sleeping */
-            if (Prev)
+            if (Previous)
             {
-                Prev->Next = Next;
+                __atomic_store_n(&Previous->Next, Next, __ATOMIC_SEQ_CST);
             }
             else
             {
-                Scheduler->SleepingQueue = Next;
+                __atomic_store_n(&Schd->SleepingQueue, Next, __ATOMIC_SEQ_CST);
+            }
+            if (Next)
+            {
+                __atomic_store_n(&Next->Prev, Previous, __ATOMIC_SEQ_CST);
             }
 
             __atomic_store_n(&Current->WaitReason, WaitReasonNone, __ATOMIC_SEQ_CST);
             __atomic_store_n(&Current->WakeupTime, 0, __ATOMIC_SEQ_CST);
-            Current->State = ThreadStateReady;
-            Current->Prev  = NULL;
-            Current->Next  = NULL;
+            __atomic_store_n(&Current->State, ThreadStateReady, __ATOMIC_SEQ_CST);
+            __atomic_store_n(&Current->Prev, NULL, __ATOMIC_SEQ_CST);
+            __atomic_store_n(&Current->Next, NULL, __ATOMIC_SEQ_CST);
 
-            /* splice into ready tail under lock */
-            if (Probe_IF_Error(Scheduler->ReadyQueue) || !Scheduler->ReadyQueue)
+            uint32_t   Prio = __atomic_load_n(&Current->Priority, __ATOMIC_SEQ_CST);
+            PrioQueue* Q    = &Schd->ReadyQueues[Prio];
+            PrioQueuePush(Q, Current);
+
+            uint32_t Hi = __atomic_load_n(&Schd->HighestPrio, __ATOMIC_SEQ_CST);
+            if (Prio < Hi)
             {
-                Scheduler->ReadyQueue = Current;
-            }
-            else
-            {
-                Thread* Tail = Scheduler->ReadyQueue;
-                while (Tail->Next)
-                {
-                    Tail = Tail->Next;
-                }
-                Tail->Next    = Current;
-                Current->Prev = Tail;
+                __atomic_store_n(&Schd->HighestPrio, Prio, __ATOMIC_SEQ_CST);
             }
 
-            Scheduler->ReadyCount++;
+            __atomic_fetch_add(&Schd->ReadyCount, 1, __ATOMIC_SEQ_CST);
         }
         else
         {
-            Prev = Current;
+            Previous = Current;
         }
 
         Current = Next;
     }
-
-    ReleaseSpinLock(&Scheduler->SchedulerLock, __Err__);
 }
 
 void
@@ -302,17 +364,14 @@ CleanupZombieThreads(uint32_t __CpuId__, SysErr* __Err__)
         return;
     }
 
-    CpuScheduler* Scheduler = &CpuSchedulers[__CpuId__];
-    AcquireSpinLock(&Scheduler->SchedulerLock, __Err__);
+    CpuScheduler* Schd = &CpuSchedulers[__CpuId__];
 
-    Thread* Current        = Scheduler->ZombieQueue;
-    Scheduler->ZombieQueue = NULL;
-
-    ReleaseSpinLock(&Scheduler->SchedulerLock, __Err__);
+    Thread* Current = __atomic_load_n(&Schd->ZombieQueue, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->ZombieQueue, NULL, __ATOMIC_SEQ_CST);
 
     while (Current)
     {
-        Thread* Next = Current->Next;
+        Thread* Next = __atomic_load_n(&Current->Next, __ATOMIC_SEQ_CST);
         DestroyThread(Current, __Err__);
         Current = Next;
     }
@@ -327,29 +386,33 @@ InitializeCpuScheduler(uint32_t __CpuId__, SysErr* __Err__)
         return;
     }
 
-    CpuScheduler* Scheduler = &CpuSchedulers[__CpuId__];
+    CpuScheduler* Schd = &CpuSchedulers[__CpuId__];
 
-    /* Reset all queues to empty */
-    Scheduler->ReadyQueue    = NULL;
-    Scheduler->WaitingQueue  = NULL;
-    Scheduler->ZombieQueue   = NULL;
-    Scheduler->SleepingQueue = NULL;
-    Scheduler->CurrentThread = NULL;
-    Scheduler->NextThread    = NULL;
-    Scheduler->IdleThread    = NULL;
+    for (uint32_t Prio = 0; Prio < PRIO_MAX; Prio++)
+    {
+        PrioQueueInit(&Schd->ReadyQueues[Prio]);
+    }
 
-    /* Reset all */
-    __atomic_store_n(&Scheduler->ThreadCount, 0, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&Scheduler->ReadyCount, 0, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&Scheduler->ContextSwitches, 0, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&Scheduler->IdleTicks, 0, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&Scheduler->LoadAverage, 0, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&Scheduler->ScheduleTicks, 0, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&Scheduler->LastSchedule, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->WaitingQueue, NULL, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->ZombieQueue, NULL, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->SleepingQueue, NULL, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->CurrentThread, NULL, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->NextThread, NULL, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->IdleThread, NULL, __ATOMIC_SEQ_CST);
 
-    InitializeSpinLock(&Scheduler->SchedulerLock, "CpuScheduler", __Err__);
+    __atomic_store_n(&Schd->ThreadCount, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->ReadyCount, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->ContextSwitches, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->IdleTicks, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->LoadAverage, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->ScheduleTicks, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->LastSchedule, 0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->HighestPrio, PRIO_MAX, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->Priority, PRIO_USER_NORMAL, __ATOMIC_SEQ_CST);
 
-    PDebug("CPU %u scheduler initialized\n", __CpuId__);
+    InitializeSpinLock(&Schd->SchedulerLock, "CpuScheduler", __Err__);
+
+    PDebug("CPU %u priority scheduler initialized\n", __CpuId__);
 }
 
 void
@@ -363,27 +426,27 @@ SaveInterruptFrameToThread(Thread* __ThreadPtr__, InterruptFrame* __Frame__, Sys
 
     ThreadContext* Context = &__ThreadPtr__->Context;
 
-    Context->Rax = __Frame__->Rax;
-    Context->Rbx = __Frame__->Rbx;
-    Context->Rcx = __Frame__->Rcx;
-    Context->Rdx = __Frame__->Rdx;
-    Context->Rsi = __Frame__->Rsi;
-    Context->Rdi = __Frame__->Rdi;
-    Context->Rbp = __Frame__->Rbp;
-    Context->R8  = __Frame__->R8;
-    Context->R9  = __Frame__->R9;
-    Context->R10 = __Frame__->R10;
-    Context->R11 = __Frame__->R11;
-    Context->R12 = __Frame__->R12;
-    Context->R13 = __Frame__->R13;
-    Context->R14 = __Frame__->R14;
-    Context->R15 = __Frame__->R15;
+    __atomic_store_n(&Context->Rax, __Frame__->Rax, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->Rbx, __Frame__->Rbx, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->Rcx, __Frame__->Rcx, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->Rdx, __Frame__->Rdx, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->Rsi, __Frame__->Rsi, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->Rdi, __Frame__->Rdi, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->Rbp, __Frame__->Rbp, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->R8, __Frame__->R8, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->R9, __Frame__->R9, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->R10, __Frame__->R10, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->R11, __Frame__->R11, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->R12, __Frame__->R12, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->R13, __Frame__->R13, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->R14, __Frame__->R14, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->R15, __Frame__->R15, __ATOMIC_SEQ_CST);
 
-    Context->Rip    = __Frame__->Rip;
-    Context->Rsp    = __Frame__->Rsp;
-    Context->Rflags = __Frame__->Rflags;
-    Context->Cs     = __Frame__->Cs;
-    Context->Ss     = __Frame__->Ss;
+    __atomic_store_n(&Context->Rip, __Frame__->Rip, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->Rsp, __Frame__->Rsp, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->Rflags, __Frame__->Rflags, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->Cs, __Frame__->Cs, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Context->Ss, __Frame__->Ss, __ATOMIC_SEQ_CST);
 }
 
 void
@@ -395,38 +458,55 @@ LoadThreadContextToInterruptFrame(Thread* __ThreadPtr__, InterruptFrame* __Frame
         return;
     }
 
-    uint64_t __Pd__ = __ThreadPtr__->PageDirectory;
-    if (__Pd__)
+    uint64_t Pd = __atomic_load_n(&__ThreadPtr__->PageDirectory, __ATOMIC_SEQ_CST);
+    if (Pd)
     {
-        __asm__ volatile("mov %0, %%cr3" ::"r"(__Pd__) : "memory");
+        __asm__ volatile("mov %0, %%cr3" ::"r"(Pd) : "memory");
     }
-
-    /*FPU*/
-    ThreadFxRestore(__ThreadPtr__->Context.FpuState);
 
     ThreadContext* Context = &__ThreadPtr__->Context;
 
-    __Frame__->Rax = Context->Rax;
-    __Frame__->Rbx = Context->Rbx;
-    __Frame__->Rcx = Context->Rcx;
-    __Frame__->Rdx = Context->Rdx;
-    __Frame__->Rsi = Context->Rsi;
-    __Frame__->Rdi = Context->Rdi;
-    __Frame__->Rbp = Context->Rbp;
-    __Frame__->R8  = Context->R8;
-    __Frame__->R9  = Context->R9;
-    __Frame__->R10 = Context->R10;
-    __Frame__->R11 = Context->R11;
-    __Frame__->R12 = Context->R12;
-    __Frame__->R13 = Context->R13;
-    __Frame__->R14 = Context->R14;
-    __Frame__->R15 = Context->R15;
+    __atomic_store_n(
+        &__Frame__->Rax, __atomic_load_n(&Context->Rax, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->Rbx, __atomic_load_n(&Context->Rbx, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->Rcx, __atomic_load_n(&Context->Rcx, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->Rdx, __atomic_load_n(&Context->Rdx, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->Rsi, __atomic_load_n(&Context->Rsi, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->Rdi, __atomic_load_n(&Context->Rdi, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->Rbp, __atomic_load_n(&Context->Rbp, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->R8, __atomic_load_n(&Context->R8, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->R9, __atomic_load_n(&Context->R9, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->R10, __atomic_load_n(&Context->R10, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->R11, __atomic_load_n(&Context->R11, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->R12, __atomic_load_n(&Context->R12, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->R13, __atomic_load_n(&Context->R13, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->R14, __atomic_load_n(&Context->R14, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->R15, __atomic_load_n(&Context->R15, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
 
-    __Frame__->Rip    = Context->Rip;
-    __Frame__->Rsp    = Context->Rsp;
-    __Frame__->Rflags = Context->Rflags;
-    __Frame__->Cs     = Context->Cs;
-    __Frame__->Ss     = Context->Ss;
+    __atomic_store_n(
+        &__Frame__->Rip, __atomic_load_n(&Context->Rip, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->Rsp, __atomic_load_n(&Context->Rsp, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->Rflags, __atomic_load_n(&Context->Rflags, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->Cs, __atomic_load_n(&Context->Cs, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &__Frame__->Ss, __atomic_load_n(&Context->Ss, __ATOMIC_SEQ_CST), __ATOMIC_SEQ_CST);
 }
 
 void
@@ -439,149 +519,156 @@ Schedule(uint32_t __CpuId__, InterruptFrame* __Frame__, SysErr* __Err__)
         return;
     }
 
-    CpuScheduler* Scheduler  = &CpuSchedulers[__CpuId__];
-    Thread*       Current    = Scheduler->CurrentThread;
-    Thread*       NextThread = NULL;
+    CpuScheduler* Schd    = &CpuSchedulers[__CpuId__];
+    Thread*       Current = __atomic_load_n(&Schd->CurrentThread, __ATOMIC_SEQ_CST);
 
-    /*for trace*/
-#ifdef __SchdDBG
-    DumpCpuSchedulerInfo(__CpuId__, __Err__);
-#endif
+    __atomic_fetch_add(&Schd->ScheduleTicks, 1, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Schd->LastSchedule, GetSystemTicks(), __ATOMIC_SEQ_CST);
 
-    __atomic_fetch_add(&Scheduler->ScheduleTicks, 1, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&Scheduler->LastSchedule, GetSystemTicks(), __ATOMIC_SEQ_CST);
-
+    bool TimeSliceExpired = false;
     if (Current)
     {
-        /*FPU*/
-        ThreadFxSave(Current->Context.FpuState);
-
-        /*Save*/
         SaveInterruptFrameToThread(Current, __Frame__, __Err__);
-
         __atomic_fetch_add(&Current->CpuTime, 1, __ATOMIC_SEQ_CST);
 
-        /* Handle current thread */
-        switch (Current->State)
+        ThreadState CurThrdSt = __atomic_load_n(&Current->State, __ATOMIC_SEQ_CST);
+        switch (CurThrdSt)
         {
             case ThreadStateRunning:
-                /* Thread was preempted normally */
-                AddThreadToReadyQueue(__CpuId__, Current, __Err__);
-                break;
+            case ThreadStateReady:
+                {
+                    __atomic_store_n(&Current->State, ThreadStateReady, __ATOMIC_SEQ_CST);
 
+                    bool     HigherPrioReady = false;
+                    uint32_t CurPrio = __atomic_load_n(&Current->Priority, __ATOMIC_SEQ_CST);
+                    for (uint32_t P = 0; P < CurPrio; P++)
+                    {
+                        if (!PrioQueueIsEmpty(&Schd->ReadyQueues[P]))
+                        {
+                            HigherPrioReady = true;
+                            break;
+                        }
+                    }
+
+                    uint32_t TimeSl = __atomic_load_n(&Current->TimeSlice, __ATOMIC_SEQ_CST);
+                    if (TimeSl > 0)
+                    {
+                        __atomic_fetch_sub(&Current->TimeSlice, 1, __ATOMIC_SEQ_CST);
+                        uint32_t nts = __atomic_load_n(&Current->TimeSlice, __ATOMIC_SEQ_CST);
+                        if (nts == 0)
+                        {
+                            TimeSliceExpired = true;
+                        }
+                    }
+
+                    if (HigherPrioReady)
+                    {
+                        uint32_t Prio = CurPrio;
+                        PrioQueuePush(&Schd->ReadyQueues[Prio], Current);
+                        __atomic_fetch_add(&Schd->ReadyCount, 1, __ATOMIC_SEQ_CST);
+                    }
+                    else if (TimeSliceExpired)
+                    {
+                        uint32_t   Prio = CurPrio;
+                        PrioQueue* Q    = &Schd->ReadyQueues[Prio];
+
+                        if (Q->Head != Q->Tail || Q->Head != Current)
+                        {
+                            PrioQueuePush(&Schd->ReadyQueues[Prio], Current);
+                            __atomic_fetch_add(&Schd->ReadyCount, 1, __ATOMIC_SEQ_CST);
+                        }
+                        __atomic_store_n(&Current->TimeSlice, DEFAULT_TIME_SLICE, __ATOMIC_SEQ_CST);
+                    }
+                    break;
+                }
             case ThreadStateTerminated:
-                /* Thread has finished */
+            case ThreadStateZombie:
                 AddThreadToZombieQueue(__CpuId__, Current, __Err__);
                 break;
-
             case ThreadStateBlocked:
-                /* Thread is waiting for I/O or resource */
                 AddThreadToWaitingQueue(__CpuId__, Current, __Err__);
                 break;
-
             case ThreadStateSleeping:
-                /* Thread is sleeping */
                 AddThreadToSleepingQueue(__CpuId__, Current, __Err__);
                 break;
-
-            case ThreadStateReady:
-                /* Thread yielded CPU voluntarily */
-                AddThreadToReadyQueue(__CpuId__, Current, __Err__);
-                break;
-
             default:
-                /* Unknown state */
-                Current->State = ThreadStateReady;
+                __atomic_store_n(&Current->State, ThreadStateReady, __ATOMIC_SEQ_CST);
                 AddThreadToReadyQueue(__CpuId__, Current, __Err__);
                 break;
         }
     }
 
-SelectAgain:
-
-    /*Routine*/
     WakeupSleepingThreads(__CpuId__, __Err__);
     CleanupZombieThreads(__CpuId__, __Err__);
 
-    NextThread = RemoveThreadFromReadyQueue(__CpuId__);
-
-    /* CPU is idle */
-    if (Probe_IF_Error(NextThread))
+    Thread* Next = NULL;
+    if (Current && __atomic_load_n(&Current->State, __ATOMIC_SEQ_CST) == ThreadStateReady)
     {
-        Scheduler->CurrentThread = NULL;
-        __atomic_fetch_add(&Scheduler->IdleTicks, 1, __ATOMIC_SEQ_CST);
+        bool     HigherPrioReady = false;
+        uint32_t CurPrio         = __atomic_load_n(&Current->Priority, __ATOMIC_SEQ_CST);
+        for (uint32_t P = 0; P < CurPrio; P++)
+        {
+            if (!PrioQueueIsEmpty(&Schd->ReadyQueues[P]))
+            {
+                HigherPrioReady = true;
+                break;
+            }
+        }
+
+        uint32_t TimeSl = __atomic_load_n(&Current->TimeSlice, __ATOMIC_SEQ_CST);
+        if (!HigherPrioReady && TimeSl > 0 && !TimeSliceExpired)
+        {
+            Next = Current;
+        }
+    }
+
+    if (!Next)
+    {
+        Next = RemoveThreadFromReadyQueue(__CpuId__);
+    }
+
+    if (Probe_IF_Error(Next) || !Next)
+    {
+        __atomic_store_n(&Schd->NextThread, NULL, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&Schd->CurrentThread, NULL, __ATOMIC_SEQ_CST);
+        __atomic_fetch_add(&Schd->IdleTicks, 1, __ATOMIC_SEQ_CST);
         SlotError(__Err__, -NoSuch);
         return;
     }
-
-    /* Override CS and SS selectors based on ring */
-    if (NextThread->Type == ThreadTypeUser)
-    {
-        NextThread->Context.Cs = UserCodeSelector;
-        NextThread->Context.Ss = UserDataSelector;
-    }
     else
     {
-        NextThread->Context.Cs = KernelCodeSelector;
-        NextThread->Context.Ss = KernelDataSelector;
+        __atomic_store_n(&Schd->NextThread, Next, __ATOMIC_SEQ_CST);
     }
 
-    /* Frequency stride based on thread priority */
-    uint32_t Stride = 1;
-    switch (NextThread->Priority)
+    ThreadType TypeThrd = __atomic_load_n(&Next->Type, __ATOMIC_SEQ_CST);
+
+    /*ring3*/
+    if (TypeThrd == ThreadTypeUser)
     {
-        case ThreadPrioritykernel:
-            Stride = 1;
-            break; /* Kernel threads run constantly */
-        case ThreadPrioritySuper:
-            Stride = 2;
-            break;
-        case ThreadPriorityUltra:
-            Stride = 4;
-            break;
-        case ThreadPriorityHigh:
-            Stride = 8;
-            break;
-        case ThreadPriorityNormal:
-            Stride = 16;
-            break;
-        case ThreadPriorityLow:
-            Stride = 32;
-            break;
-        case ThreadPriorityIdle:
-            Stride = 64;
-            break;
-
-        default:
-            Stride = 16;
-            break; /* Default to normal priority */
+        __atomic_store_n(&Next->Context.Cs, UserCodeSelector, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&Next->Context.Ss, UserDataSelector, __ATOMIC_SEQ_CST);
     }
 
-    if (__atomic_load_n(&NextThread->Cooldown, __ATOMIC_SEQ_CST) > 0)
-    {
-        __atomic_fetch_sub(&NextThread->Cooldown, 1, __ATOMIC_SEQ_CST);
-        AddThreadToReadyQueue(__CpuId__, NextThread, __Err__);
-
-        /* Select another thread to run */
-        goto SelectAgain;
-    }
+    /*ring0*/
     else
     {
-        /*Reset*/
-        __atomic_store_n(&NextThread->Cooldown, Stride - 1, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&Next->Context.Cs, KernelCodeSelector, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&Next->Context.Ss, KernelDataSelector, __ATOMIC_SEQ_CST);
     }
 
-    Scheduler->CurrentThread = NextThread;
-    NextThread->State        = ThreadStateRunning;
-    NextThread->LastCpu      = __CpuId__;
-    __atomic_store_n(&NextThread->StartTime, GetSystemTicks(), __ATOMIC_SEQ_CST);
-    __atomic_fetch_add(&Scheduler->ContextSwitches, 1, __ATOMIC_SEQ_CST);
-    __atomic_fetch_add(&NextThread->ContextSwitches, 1, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Next->State, ThreadStateRunning, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Next->LastCpu, __CpuId__, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Next->StartTime, GetSystemTicks(), __ATOMIC_SEQ_CST);
+    __atomic_fetch_add(&Schd->ContextSwitches, 1, __ATOMIC_SEQ_CST);
+    __atomic_fetch_add(&Next->ContextSwitches, 1, __ATOMIC_SEQ_CST);
 
-    /*Restore*/
-    LoadThreadContextToInterruptFrame(NextThread, __Frame__, __Err__);
+    if (Next != Current)
+    {
+        LoadThreadContextToInterruptFrame(Next, __Frame__, __Err__);
+    }
 
-    SetCurrentThread(__CpuId__, NextThread, __Err__);
+    SetCurrentThread(__CpuId__, Next, __Err__);
+    __atomic_store_n(&Schd->CurrentThread, Next, __ATOMIC_SEQ_CST);
 }
 
 void
@@ -593,16 +680,60 @@ DumpCpuSchedulerInfo(uint32_t __CpuId__, SysErr* __Err__)
         return;
     }
 
-    CpuScheduler* Scheduler = &CpuSchedulers[__CpuId__];
+    CpuScheduler* Schd = &CpuSchedulers[__CpuId__];
 
     PInfo("CPU %u Scheduler:\n", __CpuId__);
-    PInfo("  Threads: %u, Ready: %u\n",
-          __atomic_load_n(&Scheduler->ThreadCount, __ATOMIC_SEQ_CST),
-          __atomic_load_n(&Scheduler->ReadyCount, __ATOMIC_SEQ_CST));
-    PInfo("  Context Switches: %llu\n",
-          __atomic_load_n(&Scheduler->ContextSwitches, __ATOMIC_SEQ_CST));
-    PInfo("  Current Thread: %u\n",
-          Scheduler->CurrentThread ? Scheduler->CurrentThread->ThreadId : 0);
+    PInfo("  ThreadCount     : %u\n", __atomic_load_n(&Schd->ThreadCount, __ATOMIC_SEQ_CST));
+    PInfo("  ReadyCount      : %u\n", __atomic_load_n(&Schd->ReadyCount, __ATOMIC_SEQ_CST));
+    PInfo("  ContextSwitches : %llu\n", __atomic_load_n(&Schd->ContextSwitches, __ATOMIC_SEQ_CST));
+    PInfo("  IdleTicks       : %llu\n", __atomic_load_n(&Schd->IdleTicks, __ATOMIC_SEQ_CST));
+    PInfo("  LoadAverage     : %u\n", __atomic_load_n(&Schd->LoadAverage, __ATOMIC_SEQ_CST));
+    PInfo("  LastSchedule    : %llu\n", __atomic_load_n(&Schd->LastSchedule, __ATOMIC_SEQ_CST));
+    PInfo("  ScheduleTicks   : %llu\n", __atomic_load_n(&Schd->ScheduleTicks, __ATOMIC_SEQ_CST));
+    PInfo("  Priority        : %u\n", __atomic_load_n(&Schd->Priority, __ATOMIC_SEQ_CST));
+    PInfo("  HighestPrio     : %u\n", __atomic_load_n(&Schd->HighestPrio, __ATOMIC_SEQ_CST));
+
+    Thread* Current = __atomic_load_n(&Schd->CurrentThread, __ATOMIC_SEQ_CST);
+    Thread* Nxt     = __atomic_load_n(&Schd->NextThread, __ATOMIC_SEQ_CST);
+    Thread* Idle    = __atomic_load_n(&Schd->IdleThread, __ATOMIC_SEQ_CST);
+
+    PInfo("  CurrentThread   : %u (state=%d type=%d prio=%d)\n",
+          Current ? __atomic_load_n(&Current->ThreadId, __ATOMIC_SEQ_CST) : 0,
+          Current ? __atomic_load_n(&Current->State, __ATOMIC_SEQ_CST) : ThreadStateUnknown,
+          Current ? __atomic_load_n(&Current->Type, __ATOMIC_SEQ_CST) : ThreadTypeUnknown,
+          Current ? __atomic_load_n(&Current->Priority, __ATOMIC_SEQ_CST) : 0);
+
+    PInfo("  NextThread      : %u (state=%d type=%d prio=%d)\n",
+          Nxt ? __atomic_load_n(&Nxt->ThreadId, __ATOMIC_SEQ_CST) : 0,
+          Nxt ? __atomic_load_n(&Nxt->State, __ATOMIC_SEQ_CST) : ThreadStateUnknown,
+          Nxt ? __atomic_load_n(&Nxt->Type, __ATOMIC_SEQ_CST) : ThreadTypeUnknown,
+          Nxt ? __atomic_load_n(&Nxt->Priority, __ATOMIC_SEQ_CST) : 0);
+
+    PInfo("  IdleThread      : %u\n",
+          Idle ? __atomic_load_n(&Idle->ThreadId, __ATOMIC_SEQ_CST) : 0);
+
+    for (uint32_t Prio = 0; Prio < PRIO_MAX; Prio++)
+    {
+        PrioQueue* Q = &Schd->ReadyQueues[Prio];
+        if (!PrioQueueIsEmpty(Q))
+        {
+            Thread* Thrd = __atomic_load_n(&Q->Head, __ATOMIC_SEQ_CST);
+            int     Idx  = 0;
+            while (Thrd)
+            {
+                PInfo("    Ready[Prio=%u][%d]: tid=%u pid=%u state=%d rip=0x%llx rsp=0x%llx\n",
+                      Prio,
+                      Idx,
+                      __atomic_load_n(&Thrd->ThreadId, __ATOMIC_SEQ_CST),
+                      __atomic_load_n(&Thrd->ProcessId, __ATOMIC_SEQ_CST),
+                      __atomic_load_n(&Thrd->State, __ATOMIC_SEQ_CST),
+                      (unsigned long long)__atomic_load_n(&Thrd->Context.Rip, __ATOMIC_SEQ_CST),
+                      (unsigned long long)__atomic_load_n(&Thrd->Context.Rsp, __ATOMIC_SEQ_CST));
+                Thrd = __atomic_load_n(&Thrd->Next, __ATOMIC_SEQ_CST);
+                Idx++;
+            }
+        }
+    }
 }
 
 void

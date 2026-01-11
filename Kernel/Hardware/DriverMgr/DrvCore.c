@@ -19,7 +19,7 @@ InitializeDriverManager(void)
 
     for (uint32_t TypeIndex = 0; TypeIndex < MaxDriverTypes; TypeIndex++)
     {
-        DriverManager.Types[TypeIndex].Type        = DriverTypeCustom;
+        DriverManager.Types[TypeIndex].Type        = DriverTypeDefault;
         DriverManager.Types[TypeIndex].DriverCount = 0;
 
         for (uint32_t DriverIndex = 0; DriverIndex < MaxDriversPerType; DriverIndex++)
@@ -37,15 +37,15 @@ InitializeDriverManager(void)
     InitializeSpinLock(&DriverManager.ManagerLock, "DriverManager", Error);
 
     /*Default driver types*/
-    RegisterDriverType("input", DriverTypeInput);
-    RegisterDriverType("storage", DriverTypeStorage);
-    RegisterDriverType("network", DriverTypeNetwork);
-    RegisterDriverType("graphics", DriverTypeGraphics);
-    RegisterDriverType("audio", DriverTypeAudio);
-    RegisterDriverType("usb", DriverTypeUsb);
-    RegisterDriverType("pci", DriverTypePci);
-    RegisterDriverType("serial", DriverTypeSerial);
-    RegisterDriverType("system", DriverTypeSystem);
+
+    for (int I = 0; DriverTypes[I]; I++)
+    {
+        int Ret = RegisterDriverType(DriverTypes[I], I);
+        if (Ret != SysOkay)
+        {
+            PWarn("Failed to register default driver type: %s (%d)\n", DriverTypes[I], Ret);
+        }
+    }
 
     DriverManager.Initialized = true;
 

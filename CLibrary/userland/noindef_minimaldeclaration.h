@@ -1,32 +1,35 @@
 #pragma once
 
-#include <AllTypes.h>
+#include "../install/x86_64-elf/include/errno.h"
+#include "../install/x86_64-elf/include/stdint.h"
+#include "../install/x86_64-elf/include/stdlib.h"
+#include "../install/x86_64-elf/include/sys/resource.h"
+#include "../install/x86_64-elf/include/sys/select.h"
+#include "../install/x86_64-elf/include/sys/stat.h"
+#include "../install/x86_64-elf/include/sys/time.h"
+#include "../install/x86_64-elf/include/sys/times.h"
+#include "../install/x86_64-elf/include/sys/types.h"
 
-#define SysOkay 0
-#define SysErro -1
-
-typedef struct
+/*sys/uio.h*/
+struct iovec
 {
-    int ErrCode;
-} SysErr;
+    void*  iov_base; /* Starting address */
+    size_t iov_len;  /* Number of bytes to transfer */
+};
 
-/*for voids*/
-#define SlotError(__PtrError__, __CodeEnum__)                                                      \
-    do                                                                                             \
-    {                                                                                              \
-        if ((__PtrError__) != NULL)                                                                \
-        {                                                                                          \
-            (__PtrError__)->ErrCode = (__CodeEnum__);                                              \
-        }                                                                                          \
-    } while (0)
+/*sys/utsname.h*/
+struct utsname
+{
+    char sysname[65];
+    char nodename[65];
+    char release[65];
+    char version[65];
+    char machine[65];
+};
 
-/*linux-like idioms*/
-#define Error_TO_Pointer(__Code__) ((void*)(intptr_t)(__Code__))
-#define Pointer_TO_Error(__Ptr__)  ((int)(intptr_t)(__Ptr__))
-#define Probe_IF_Error(__Ptr__)    ((intptr_t)(__Ptr__) >= (intptr_t)(-4095))
+/*AxeKrnl Kernel Libraries*/
 
-/*For bools or binary returns, syserro and sysokay work too*/
-
+/*Errnos.h*/
 enum ErrCodes
 {
     Nothing,
@@ -62,6 +65,3 @@ enum ErrCodes
     Busy,          /*busy things*/
 
 };
-
-/*useful*/
-#define _unused __attribute((unused))

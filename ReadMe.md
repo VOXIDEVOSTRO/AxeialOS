@@ -46,7 +46,7 @@ for .iso
 ./Run.sh iso
 ```
 
-Another note: also incase using the './' prifix doesnt work for the script use 'sh' cmdlet like:
+Another note: also incase using the './' prefix does not work when using the the script use 'sh' cmdlet for example:
 
 ```
 sh Build.sh
@@ -82,4 +82,5 @@ anyway thanks for actually trying it out.
 
 You are free to experiment on this operating system as much as you want
 
-DRIVER NOTE: All drivers/kernel modules(.ko) have been deprecated because of the kernel rewrite! Will be fixed after the driver overhaul.
+join my community! 
+https://discord.gg/dEPMKfktBt

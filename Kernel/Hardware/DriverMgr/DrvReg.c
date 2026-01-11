@@ -3,6 +3,9 @@
 #include <KrnPrintf.h>
 #include <String.h>
 
+const char* DriverTypes[] = {
+    "default", "input", "storage", "network", "graphics", "audio", "usb", "pci", "serial", NULL};
+
 int
 AddDriverToRegistry(DriverInfo* __Info__)
 {
@@ -276,14 +279,13 @@ GetLoadedDrivers(uint32_t* __Count__)
 int
 ScanDriverDirectory(void)
 {
-    const char* DriverTypes[] = {
-        "system", "input", "storage", "network", "graphics", "audio", "usb", "pci", "serial"};
 
     PDebug("Driver directory scan from base: %s\n", DriverPathBase);
 
-    for (uint32_t TypeIdx = 0; TypeIdx < 9; TypeIdx++)
+    for (uint32_t TypeIdx = 0; DriverTypes[TypeIdx] != NULL; TypeIdx++)
     {
         char DirPath[DriverPathMaxLen];
+
         strcpy(DirPath, DriverPathBase, sizeof(DirPath));
         strcpy(DirPath + strlen(DirPath), "/", sizeof(DirPath) - strlen(DirPath));
         strcpy(DirPath + strlen(DirPath), DriverTypes[TypeIdx], sizeof(DirPath) - strlen(DirPath));
@@ -312,6 +314,9 @@ ScanDriverDirectory(void)
 
         for (long EntryIdx = 0; EntryIdx < EntryCount; EntryIdx++)
         {
+            SysErr  err;
+            SysErr* Error = &err;
+
             VfsDirEnt* Entry = &DirBuffer[EntryIdx];
 
             PDebug("Processing entry: %s (type=%d)\n", Entry->Name, Entry->Type);
@@ -323,19 +328,21 @@ ScanDriverDirectory(void)
             }
 
             char* DotKo = strrchr(Entry->Name, '.');
-            if (Probe_IF_Error(DotKo) || !DotKo || strcmp(DotKo, ".ko") != 0)
+            if (!DotKo || strcmp(DotKo, ".ko") != 0)
             {
                 PWarn("non-.ko file: %s\n", Entry->Name);
                 continue;
             }
 
+            AcquireSpinLock(&DriverManager.ManagerLock, Error);
             char FullPath[DriverPathMaxLen];
             strcpy(FullPath, DirPath, sizeof(FullPath));
             strcpy(FullPath + strlen(FullPath), "/", sizeof(FullPath) - strlen(FullPath));
             strcpy(FullPath + strlen(FullPath), Entry->Name, sizeof(FullPath) - strlen(FullPath));
-
             DriverInfo Info;
             int        result = GetDriverModuleInfo(FullPath, &Info);
+            ReleaseSpinLock(&DriverManager.ManagerLock, Error);
+
             if (result == SysOkay)
             {
                 int addResult = AddDriverToRegistry(&Info);

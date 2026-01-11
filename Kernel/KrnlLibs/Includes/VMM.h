@@ -47,6 +47,10 @@ int                 MapPage(VirtualMemorySpace* __Space__,
                             uint64_t            __VirtAddr__,
                             uint64_t            __PhysAddr__,
                             uint64_t            __Flags__);
+int                 MapRangeZeroed(VirtualMemorySpace* __Space__,
+                                   uint64_t            __VaStart__,
+                                   uint64_t            __Len__,
+                                   uint64_t            __Flags__);
 int                 UnmapPage(VirtualMemorySpace* __Space__, uint64_t __VirtAddr__);
 uint64_t            GetPhysicalAddress(VirtualMemorySpace* __Space__, uint64_t __VirtAddr__);
 void                SwitchVirtualSpace(VirtualMemorySpace* __Space__, SysErr* __Err__);

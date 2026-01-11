@@ -332,7 +332,6 @@ RamFSLookup(RamFSNode* __Root__, const char* __Path__)
             if (Probe_IF_Error(Next) || !Next)
             {
                 return Error_TO_Pointer(-Dangling);
-                ;
             }
 
             Cur = Next;

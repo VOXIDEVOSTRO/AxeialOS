@@ -78,17 +78,20 @@ KernelWorkerThread(void* __Argument__)
     }
     else
     {
-        /*Just if you wanna know*/
-        // PciDumpAllDevices(Error);
         InitComplete = true;
     }
 
     /*Hardware*/
     InitializeDriverManager();
+    InitDeviceManager(Error);
+    InitProbeManager(Error);
+
+    /*Load driver at current state*/
+    CheckForHardware(Error);
 
     /*Testing*/
-    //__TEST__Proc();
-    __TEST__DriverManager(); /*Test NEW driver manager*/
+    __TEST__Thrd();
+    __TEST__Proc();
 
     if (InitComplete == true)
     {
@@ -133,11 +136,7 @@ KernelWorkerThread(void* __Argument__)
         PError("[Post kernel init failed]\n");
     }
 
-    /*ig this can be our idle thread???*/
-    for (;;)
-    {
-        __asm__("hlt");
-    }
+    ThreadExit(0, Error);
 }
 
 void
@@ -153,7 +152,9 @@ _start(void)
         /*Locks*/
         InitializeSpinLock(&TestLock, "TestLock", Error);
         InitializeSpinLock(&SMPLock, "SMP", Error);
+        InitializeSpinLock(&ConsoleLock, "Console", Error);
 
+        /*UART*/
         InitializeSerial();
 
         /*Console*/
@@ -161,7 +162,6 @@ _start(void)
         {
             KickStartConsole(
                 (uint32_t*)FrameBuffer->address, FrameBuffer->width, FrameBuffer->height);
-            InitializeSpinLock(&ConsoleLock, "Console", Error);
             ClearConsole();
 
             PInfo("AxeKrnl Kernel Booting...\n");
@@ -200,14 +200,14 @@ _start(void)
 
         /*Syscall*/
         InitSyscall();
-        SetIdtEntry(0x80, (uint64_t)SysEntASM, KernelCodeSelector, 0xEE, Error);
+        SetIdtEntry(SyscallIntNo, (uint64_t)SysEntASM, KernelCodeSelector, SysInterruptGate, Error);
 
-        /*Threading/SMP*/
+        /*Threading and SMP*/
         InitializeSmp(Error);
         InitializeThreadManager(Error);
         InitializeScheduler(Error);
 
-        /*Kernel worker*/
+        /*Kernel worker [Post Kernel Init]*/
         Thread* KernelWorker =
             CreateThread(ThreadTypeKernel, KernelWorkerThread, NULL, ThreadPrioritykernel);
         if (KernelWorker)
