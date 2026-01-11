@@ -1,4 +1,3 @@
-
 #include <AxeSchd.h>
 #include <AxeThreads.h>
 #include <KHeap.h>
@@ -8,39 +7,99 @@
 #include <Timer.h>
 #include <VMM.h>
 
-uint32_t        NextThreadId = 1;
-Thread*         ThreadList   = NULL;
-SpinLock        ThreadListLock;
-Thread*         CurrentThreads[MaxCPUs];
-static SpinLock CurrentThreadLock; /*Mutexes would have been fine ig*/
-Thread*         IdleThread;
+uint32_t NextThreadId = 1;
+Thread*  ThreadList   = NULL;
+Thread*  CurrentThreads[MaxCPUs];
+Thread*  IdleThread;
+SpinLock ThreadListLock;
 
+static inline uint32_t
+ThreadPriorityToSchedulerPrio(ThreadPriority __Priority__)
+{
+    switch (__Priority__)
+    {
+        case ThreadPriorityUltra:
+            return PRIO_CRITICAL;
+        case ThreadPrioritySuper:
+            return PRIO_INTERRUPT;
+        case ThreadPrioritykernel: /*TODO: fix this typo, i'm feeling lazy*/
+            return PRIO_IRQ;
+        case ThreadPriorityHigh:
+            return PRIO_KERNEL_HIGH;
+        case ThreadPriorityNormal:
+            return PRIO_USER_NORMAL;
+        case ThreadPriorityLow:
+            return PRIO_USER_LOW;
+        case ThreadPriorityIdle:
+            return PRIO_IDLE;
+        case ThreadPriorityUnknown:
+        default:
+            return PRIO_USER_NORMAL;
+    }
+}
+
+static inline ThreadPriority
+SchedulerPrioToThreadPriority(uint32_t __Prio__)
+{
+    if (__Prio__ <= 1)
+    {
+        return ThreadPriorityUltra;
+    }
+    else if (__Prio__ <= 3)
+    {
+        return ThreadPrioritySuper;
+    }
+    else if (__Prio__ <= 5)
+    {
+        return ThreadPriorityHigh;
+    }
+    else if (__Prio__ <= 7)
+    {
+        return ThreadPrioritykernel;
+    }
+    else if (__Prio__ <= 9)
+    {
+        return ThreadPriorityHigh;
+    }
+    else if (__Prio__ <= 11)
+    {
+        return ThreadPriorityNormal;
+    }
+    else if (__Prio__ <= 13)
+    {
+        return ThreadPriorityLow;
+    }
+    else if (__Prio__ <= 30)
+    {
+        return ThreadPriorityLow;
+    }
+    return ThreadPriorityIdle;
+}
+
+/*Idle worker*/
 static void
-Idler(void* __Arg__)
+Idler(void* __Arg__ _unused)
 {
     for (;;)
     {
-        __asm__("hlt");
+        __asm__ volatile("hlt" ::: "memory");
     }
 }
 
 void
 InitializeThreadManager(SysErr* __Err__)
 {
-    InitializeSpinLock(&ThreadListLock, "ThreadList", __Err__);
-    InitializeSpinLock(&CurrentThreadLock, "CurrentThread", __Err__);
-    NextThreadId = 1;
-    ThreadList   = NULL;
+    __atomic_store_n(&NextThreadId, 1u, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&ThreadList, (Thread*)NULL, __ATOMIC_SEQ_CST);
 
     for (uint32_t CpuIndex = 0; CpuIndex < MaxCPUs; CpuIndex++)
     {
-        CurrentThreads[CpuIndex] = NULL;
+        __atomic_store_n(&CurrentThreads[CpuIndex], (Thread*)NULL, __ATOMIC_SEQ_CST);
     }
 
     SysErr  err;
     SysErr* Error = &err;
 
-    /*Idle thread*/
     IdleThread = CreateThread(ThreadTypeKernel, Idler, NULL, ThreadPriorityIdle);
 
     if (Probe_IF_Error(IdleThread))
@@ -48,6 +107,8 @@ InitializeThreadManager(SysErr* __Err__)
         SlotError(__Err__, -BadAlloc);
         return;
     }
+
+    __atomic_store_n(&IdleThread->State, ThreadStateBlocked, __ATOMIC_SEQ_CST);
 
     PSuccess("Thread Manager initialized\n");
 }
@@ -66,18 +127,12 @@ GetCurrentThread(uint32_t __CpuId__)
         return Error_TO_Pointer(-Limits);
     }
 
-    SysErr  err;
-    SysErr* Error = &err;
-
-    AcquireSpinLock(&CurrentThreadLock, Error);
-    Thread* Result = CurrentThreads[__CpuId__];
-    ReleaseSpinLock(&CurrentThreadLock, Error);
-
+    Thread* Result = __atomic_load_n(&CurrentThreads[__CpuId__], __ATOMIC_SEQ_CST);
     return Result;
 }
 
 void
-SetCurrentThread(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Err__)
+SetCurrentThread(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Err__ _unused)
 {
     if (__CpuId__ >= MaxCPUs)
     {
@@ -85,9 +140,7 @@ SetCurrentThread(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Err__)
         return;
     }
 
-    AcquireSpinLock(&CurrentThreadLock, __Err__);
-    CurrentThreads[__CpuId__] = __ThreadPtr__;
-    ReleaseSpinLock(&CurrentThreadLock, __Err__);
+    __atomic_store_n(&CurrentThreads[__CpuId__], __ThreadPtr__, __ATOMIC_SEQ_CST);
 }
 
 Thread*
@@ -101,51 +154,40 @@ CreateThread(ThreadType     __Type__,
     Thread* NewThread = (Thread*)KMalloc(sizeof(Thread));
     if (Probe_IF_Error(NewThread) || !NewThread)
     {
-        ReleaseSpinLock(&ThreadListLock, Error);
         return Error_TO_Pointer(-BadAlloc);
     }
-    PDebug("TCB allocated at %p\n", NewThread);
 
     for (size_t Index = 0; Index < sizeof(Thread); Index++)
     {
-        ((uint8_t*)NewThread)[Index] = 0;
+        __atomic_store_n(&((uint8_t*)NewThread)[Index], (uint8_t)0, __ATOMIC_SEQ_CST);
     }
 
-    NewThread->ThreadId = AllocateThreadId();
-    PDebug("Thread ID allocated: %u\n", NewThread->ThreadId);
+    __atomic_store_n(&NewThread->ThreadId, AllocateThreadId(), __ATOMIC_SEQ_CST);
 
-    NewThread->ProcessId    = 1;
-    NewThread->State        = ThreadStateReady;
-    NewThread->Type         = __Type__;
-    NewThread->Priority     = __Priority__;
-    NewThread->BasePriority = __Priority__;
+    __atomic_store_n(&NewThread->ProcessId, 1u, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->State, ThreadStateReady, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->Type, __Type__, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->Priority, __Priority__, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->BasePriority, __Priority__, __ATOMIC_SEQ_CST);
     KrnPrintf(NewThread->Name, "Thread-%u", NewThread->ThreadId);
-    PDebug("Thread name set to: %s\n", NewThread->Name);
 
-    /*ring 0*/
     if (__Type__ == ThreadTypeKernel)
     {
-        void* KernelStackBase = KMalloc(8192);
+        void* KernelStackBase = KMalloc(KStackSize);
         if (Probe_IF_Error(KernelStackBase) || !KernelStackBase)
         {
             KFree(NewThread, Error);
-            ReleaseSpinLock(&ThreadListLock, Error);
             return Error_TO_Pointer(-BadAlloc);
         }
-        NewThread->KernelStack =
-            (uint64_t)KernelStackBase + 8192; /** Stack grows downwards; store top */
-        NewThread->UserStack = 0;             /** Kernel thread has no user stack */
-        NewThread->StackSize = 8192;
-        PDebug("CreateThread: Kernel stack allocated at %p (top: %p)\n",
-               KernelStackBase,
-               (void*)NewThread->KernelStack);
+        __atomic_store_n(
+            &NewThread->KernelStack, (uint64_t)KernelStackBase + KStackSize, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&NewThread->UserStack, (uint64_t)0, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&NewThread->StackSize, KStackSize, __ATOMIC_SEQ_CST);
     }
-
-    /*ring 3*/
     else
     {
-        void* KernelStackBase = KMalloc(8192);
-        void* UserStackBase   = KMalloc(8192);
+        void* KernelStackBase = KMalloc(KStackSize);
+        void* UserStackBase   = KMalloc(KStackSize);
         if (Probe_IF_Error(KernelStackBase) || !KernelStackBase || Probe_IF_Error(UserStackBase) ||
             !UserStackBase)
         {
@@ -158,66 +200,57 @@ CreateThread(ThreadType     __Type__,
                 KFree(UserStackBase, Error);
             }
             KFree(NewThread, Error);
-            ReleaseSpinLock(&ThreadListLock, Error);
             return Error_TO_Pointer(-BadAlloc);
         }
-        NewThread->KernelStack = (uint64_t)KernelStackBase + 8192;
-        NewThread->UserStack   = (uint64_t)UserStackBase + 8192;
-        NewThread->StackSize   = 8192;
-        PDebug("Stacks allocated - Kernel: %p, User: %p\n",
-               (void*)NewThread->KernelStack,
-               (void*)NewThread->UserStack);
+        __atomic_store_n(
+            &NewThread->KernelStack, (uint64_t)KernelStackBase + KStackSize, __ATOMIC_SEQ_CST);
+        __atomic_store_n(
+            &NewThread->UserStack, (uint64_t)UserStackBase + KStackSize, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&NewThread->StackSize, KStackSize, __ATOMIC_SEQ_CST);
     }
 
-    NewThread->Context.Rip    = (uint64_t)__EntryPoint__;
-    NewThread->Context.Rsp    = (NewThread->KernelStack & ~0xFULL) - 16;
-    NewThread->Context.Rflags = 0x202;
+    __atomic_store_n(&NewThread->Context.Rip, (uint64_t)__EntryPoint__, __ATOMIC_SEQ_CST);
+    __atomic_store_n(
+        &NewThread->Context.Rsp, ((NewThread->KernelStack & ~0xFULL) - 16), __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->Context.Rflags, 0x202ull, __ATOMIC_SEQ_CST);
 
-    /*ring0*/
     if (__Type__ == ThreadTypeKernel)
     {
-        NewThread->Context.Cs = KernelCodeSelector;
-        NewThread->Context.Ss = KernelDataSelector;
+        __atomic_store_n(&NewThread->Context.Cs, KernelCodeSelector, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&NewThread->Context.Ss, KernelDataSelector, __ATOMIC_SEQ_CST);
     }
-
-    /*ring3*/
     else
     {
-        NewThread->Context.Cs  = UserCodeSelector;
-        NewThread->Context.Ss  = UserDataSelector;
-        NewThread->Context.Rsp = (NewThread->UserStack & ~0xFULL) - 16;
+        __atomic_store_n(&NewThread->Context.Cs, UserCodeSelector, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&NewThread->Context.Ss, UserDataSelector, __ATOMIC_SEQ_CST);
+        __atomic_store_n(
+            &NewThread->Context.Rsp, ((NewThread->UserStack & ~0xFULL) - 16), __ATOMIC_SEQ_CST);
     }
 
-    NewThread->Context.Ds  = NewThread->Context.Ss;
-    NewThread->Context.Es  = NewThread->Context.Ss;
-    NewThread->Context.Fs  = NewThread->Context.Ss;
-    NewThread->Context.Gs  = NewThread->Context.Ss;
-    NewThread->Context.Rdi = (uint64_t)__Argument__;
-    PDebug("RIP=%p, RSP=%p\n", (void*)NewThread->Context.Rip, (void*)NewThread->Context.Rsp);
-    NewThread->CpuAffinity  = 0xFFFFFFFF;
-    NewThread->LastCpu      = 0xFFFFFFFF;
-    NewThread->TimeSlice    = 10;
-    NewThread->Cooldown     = 0;
-    NewThread->StartTime    = GetSystemTicks();
-    NewThread->CreationTick = GetSystemTicks();
-    NewThread->WaitReason   = WaitReasonNone;
+    __atomic_store_n(&NewThread->Context.Ds, NewThread->Context.Ss, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->Context.Es, NewThread->Context.Ss, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->Context.Fs, NewThread->Context.Ss, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->Context.Gs, NewThread->Context.Ss, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->Context.Rdi, (uint64_t)__Argument__, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->CpuAffinity, 0xFFFFFFFFu, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->LastCpu, 0xFFFFFFFFu, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->TimeSlice, DEFAULT_TIME_SLICE, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->Cooldown, 0u, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->StartTime, GetSystemTicks(), __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->CreationTick, GetSystemTicks(), __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->WaitReason, WaitReasonNone, __ATOMIC_SEQ_CST);
 
-    NewThread->PageDirectory = 0;
-    NewThread->VirtualBase   = UserVirtualBase;
-    NewThread->MemoryUsage   = (NewThread->StackSize * 2) / 1024;
+    __atomic_store_n(&NewThread->PageDirectory, (uint64_t)0, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->VirtualBase, UserVirtualBase, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->MemoryUsage, (NewThread->StackSize * 2) / 1024, __ATOMIC_SEQ_CST);
 
-    PDebug("current head: %p\n", ThreadList);
-    NewThread->Next = ThreadList;
-    if (ThreadList)
+    Thread* OLDHead = __atomic_load_n(&ThreadList, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->Next, OLDHead, __ATOMIC_SEQ_CST);
+    if (OLDHead)
     {
-        ThreadList->Prev = NewThread;
+        __atomic_store_n(&OLDHead->Prev, NewThread, __ATOMIC_SEQ_CST);
     }
-    ThreadList = NewThread;
-    PDebug("new head: %p\n", ThreadList);
-
-    PDebug("Created thread %u (%s)\n",
-           NewThread->ThreadId,
-           __Type__ == ThreadTypeKernel ? "Kernel" : "User");
+    __atomic_store_n(&ThreadList, NewThread, __ATOMIC_SEQ_CST);
 
     return NewThread;
 }
@@ -231,39 +264,40 @@ DestroyThread(Thread* __ThreadPtr__, SysErr* __Err__)
         return;
     }
 
-    __ThreadPtr__->State = ThreadStateTerminated;
+    __atomic_store_n(&__ThreadPtr__->State, ThreadStateTerminated, __ATOMIC_SEQ_CST);
 
-    AcquireSpinLock(&ThreadListLock, __Err__);
+    Thread* Previous = __atomic_load_n(&__ThreadPtr__->Prev, __ATOMIC_SEQ_CST);
+    Thread* Next     = __atomic_load_n(&__ThreadPtr__->Next, __ATOMIC_SEQ_CST);
 
-    if (__ThreadPtr__->Prev)
+    if (Previous)
     {
-        __ThreadPtr__->Prev->Next = __ThreadPtr__->Next;
+        __atomic_store_n(&Previous->Next, Next, __ATOMIC_SEQ_CST);
     }
     else
     {
-        ThreadList = __ThreadPtr__->Next;
+        __atomic_store_n(&ThreadList, Next, __ATOMIC_SEQ_CST);
     }
 
-    if (__ThreadPtr__->Next)
+    if (Next)
     {
-        __ThreadPtr__->Next->Prev = __ThreadPtr__->Prev;
+        __atomic_store_n(&Next->Prev, Previous, __ATOMIC_SEQ_CST);
     }
 
-    ReleaseSpinLock(&ThreadListLock, __Err__);
-
-    if (__ThreadPtr__->KernelStack)
+    if (__atomic_load_n(&__ThreadPtr__->KernelStack, __ATOMIC_SEQ_CST))
     {
-        KFree((void*)(__ThreadPtr__->KernelStack - __ThreadPtr__->StackSize), __Err__);
+        KFree((void*)(__atomic_load_n(&__ThreadPtr__->KernelStack, __ATOMIC_SEQ_CST) -
+                      __atomic_load_n(&__ThreadPtr__->StackSize, __ATOMIC_SEQ_CST)),
+              __Err__);
     }
 
-    if (__ThreadPtr__->UserStack)
+    if (__atomic_load_n(&__ThreadPtr__->UserStack, __ATOMIC_SEQ_CST))
     {
-        KFree((void*)(__ThreadPtr__->UserStack - __ThreadPtr__->StackSize), __Err__);
+        KFree((void*)(__atomic_load_n(&__ThreadPtr__->UserStack, __ATOMIC_SEQ_CST) -
+                      __atomic_load_n(&__ThreadPtr__->StackSize, __ATOMIC_SEQ_CST)),
+              __Err__);
     }
 
     KFree(__ThreadPtr__, __Err__);
-
-    PDebug("Destroyed thread %u\n", __ThreadPtr__->ThreadId);
 }
 
 void
@@ -275,19 +309,24 @@ SuspendThread(Thread* __ThreadPtr__, SysErr* __Err__)
         return;
     }
 
-    AcquireSpinLock(&ThreadListLock, __Err__);
+    uint32_t Flgs = __atomic_load_n(&__ThreadPtr__->Flags, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&__ThreadPtr__->Flags, Flgs | ThreadFlagSuspended, __ATOMIC_SEQ_CST);
 
-    __ThreadPtr__->Flags |= ThreadFlagSuspended;
-
-    if (__ThreadPtr__->State == ThreadStateRunning || __ThreadPtr__->State == ThreadStateReady)
+    ThreadState CurrentState = __atomic_load_n(&__ThreadPtr__->State, __ATOMIC_SEQ_CST);
+    if (CurrentState == ThreadStateRunning || CurrentState == ThreadStateReady)
     {
-        __ThreadPtr__->State      = ThreadStateBlocked;
-        __ThreadPtr__->WaitReason = WaitReasonNone;
+        __atomic_store_n(&__ThreadPtr__->State, ThreadStateBlocked, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&__ThreadPtr__->WaitReason, WaitReasonNone, __ATOMIC_SEQ_CST);
+
+        if (CurrentState == ThreadStateReady)
+        {
+            uint32_t CpuId = __atomic_load_n(&__ThreadPtr__->LastCpu, __ATOMIC_SEQ_CST);
+            if (CpuId < MaxCPUs)
+            {
+                RemoveThreadFromAllQueues(CpuId, __ThreadPtr__, __Err__);
+            }
+        }
     }
-
-    ReleaseSpinLock(&ThreadListLock, __Err__);
-
-    PDebug("Suspended thread %u\n", __ThreadPtr__->ThreadId);
 }
 
 void
@@ -299,15 +338,30 @@ ResumeThread(Thread* __ThreadPtr__, SysErr* __Err__)
         return;
     }
 
-    __ThreadPtr__->Flags &= ~ThreadFlagSuspended;
+    uint32_t Flgs = __atomic_load_n(&__ThreadPtr__->Flags, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&__ThreadPtr__->Flags, Flgs & ~ThreadFlagSuspended, __ATOMIC_SEQ_CST);
 
-    if (__ThreadPtr__->State == ThreadStateBlocked && __ThreadPtr__->WaitReason == WaitReasonNone)
+    ThreadState CurrentState = __atomic_load_n(&__ThreadPtr__->State, __ATOMIC_SEQ_CST);
+    if (CurrentState == ThreadStateBlocked)
     {
-        __ThreadPtr__->State = ThreadStateReady;
-    }
+        uint32_t WaitReason = __atomic_load_n(&__ThreadPtr__->WaitReason, __ATOMIC_SEQ_CST);
+        if (WaitReason == WaitReasonNone)
+        {
+            uint32_t CpuId = __atomic_load_n(&__ThreadPtr__->LastCpu, __ATOMIC_SEQ_CST);
+            if (CpuId >= MaxCPUs)
+            {
+                CpuId = CalculateOptimalCpu(__ThreadPtr__);
+            }
 
-    PDebug("Resumed thread %u\n", __ThreadPtr__->ThreadId);
+            __atomic_store_n(&__ThreadPtr__->State, ThreadStateReady, __ATOMIC_SEQ_CST);
+            __atomic_store_n(&__ThreadPtr__->LastCpu, CpuId, __ATOMIC_SEQ_CST);
+
+            AddThreadToReadyQueue(CpuId, __ThreadPtr__, __Err__);
+        }
+    }
 }
+
+/*Priority*/
 
 void
 SetThreadPriority(Thread* __ThreadPtr__, ThreadPriority __Priority__, SysErr* __Err__)
@@ -318,10 +372,36 @@ SetThreadPriority(Thread* __ThreadPtr__, ThreadPriority __Priority__, SysErr* __
         return;
     }
 
-    __ThreadPtr__->Priority = __Priority__;
+    uint32_t OldPrio =
+        ThreadPriorityToSchedulerPrio(__atomic_load_n(&__ThreadPtr__->Priority, __ATOMIC_SEQ_CST));
+    uint32_t    NewPrio      = ThreadPriorityToSchedulerPrio(__Priority__);
+    ThreadState CurrentState = __atomic_load_n(&__ThreadPtr__->State, __ATOMIC_SEQ_CST);
 
-    PDebug("Set thread %u priority to %u\n", __ThreadPtr__->ThreadId, __Priority__);
+    __atomic_store_n(&__ThreadPtr__->BasePriority, __Priority__, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&__ThreadPtr__->Priority, __Priority__, __ATOMIC_SEQ_CST);
+
+    if (CurrentState == ThreadStateReady || CurrentState == ThreadStateRunning)
+    {
+        uint32_t CpuId = __atomic_load_n(&__ThreadPtr__->LastCpu, __ATOMIC_SEQ_CST);
+
+        if (CpuId < MaxCPUs)
+        {
+            RemoveThreadFromAllQueues(CpuId, __ThreadPtr__, __Err__);
+            __atomic_store_n(&__ThreadPtr__->State, ThreadStateReady, __ATOMIC_SEQ_CST);
+            AddThreadToPrioQueue(CpuId, __ThreadPtr__, NewPrio, __Err__);
+        }
+    }
+
+    PDebug("Thread %u priority changed: %u -> %u (scheduler: %u -> %u)\n",
+           __atomic_load_n(&__ThreadPtr__->ThreadId, __ATOMIC_SEQ_CST),
+           __atomic_load_n(&__ThreadPtr__->BasePriority, __ATOMIC_SEQ_CST),
+           __Priority__,
+           OldPrio,
+           NewPrio);
 }
+
+/*Super simple load balancing, just equally distributes threads across CPU cores, nothing too
+ * fancy*/
 
 void
 SetThreadAffinity(Thread* __ThreadPtr__, uint32_t __CpuMask__, SysErr* __Err__)
@@ -332,31 +412,57 @@ SetThreadAffinity(Thread* __ThreadPtr__, uint32_t __CpuMask__, SysErr* __Err__)
         return;
     }
 
-    __ThreadPtr__->CpuAffinity = __CpuMask__;
+    __atomic_store_n(&__ThreadPtr__->CpuAffinity, __CpuMask__, __ATOMIC_SEQ_CST);
 
-    PDebug("Set thread %u affinity to 0x%x\n", __ThreadPtr__->ThreadId, __CpuMask__);
+    ThreadState CurrentState = __atomic_load_n(&__ThreadPtr__->State, __ATOMIC_SEQ_CST);
+    if (CurrentState == ThreadStateReady &&
+        __atomic_load_n(&__ThreadPtr__->LastCpu, __ATOMIC_SEQ_CST) < MaxCPUs)
+    {
+        uint32_t CurrentCpu = __atomic_load_n(&__ThreadPtr__->LastCpu, __ATOMIC_SEQ_CST);
+        if (!(__CpuMask__ & (1u << CurrentCpu)))
+        {
+            uint32_t TargetCpu = Nothing;
+            for (uint32_t C = 0; C < Smp.CpuCount; C++)
+            {
+                if (__CpuMask__ & (1u << C))
+                {
+                    TargetCpu = C;
+                    break;
+                }
+            }
+
+            if (TargetCpu != Nothing)
+            {
+                MigrateThreadToCpu(__ThreadPtr__, TargetCpu, __Err__);
+            }
+        }
+    }
 }
 
+/*loads*/
 uint32_t
 GetCpuLoad(uint32_t __CpuId__)
 {
     if (__CpuId__ >= MaxCPUs)
     {
-        return 0xFFFFFFFF; /* Bad CPU indicator */
+        return 0xFFFFFFFF;
     }
 
-    return GetCpuReadyCount(__CpuId__);
+    uint32_t Red = GetCpuReadyCount(__CpuId__);
+    Thread*  Cur = GetCurrentThread(__CpuId__);
+    uint32_t Run = (Probe_IF_Error(Cur) || !Cur) ? 0u : 1u;
+    return Red + Run;
 }
 
 uint32_t
 FindLeastLoadedCpu(void)
 {
     uint32_t BestCpu = 0;
-    uint32_t MinLoad = GetCpuLoad(0);
+    uint32_t MinLoad = GetCpuReadyCount(0);
 
     for (uint32_t CpuIndex = 1; CpuIndex < Smp.CpuCount; CpuIndex++)
     {
-        uint32_t Load = GetCpuLoad(CpuIndex);
+        uint32_t Load = GetCpuReadyCount(CpuIndex);
         if (Load < MinLoad)
         {
             MinLoad = Load;
@@ -375,27 +481,27 @@ CalculateOptimalCpu(Thread* __ThreadPtr__)
         return Nothing;
     }
 
-    if (__ThreadPtr__->CpuAffinity != 0xFFFFFFFF)
+    uint32_t Affinity = __atomic_load_n(&__ThreadPtr__->CpuAffinity, __ATOMIC_SEQ_CST);
+
+    if (Affinity != 0xFFFFFFFF)
     {
-        uint32_t BestCpu       = 0;
-        uint32_t MinLoad       = 0xFFFFFFFF;
-        bool     FoundValidCpu = false;
+        uint32_t BestCpu = Nothing;
+        uint32_t MinLoad = 0xFFFFFFFF;
 
         for (uint32_t CpuIndex = 0; CpuIndex < Smp.CpuCount; CpuIndex++)
         {
-            if (__ThreadPtr__->CpuAffinity & (1 << CpuIndex))
+            if (Affinity & (1u << CpuIndex))
             {
-                uint32_t Load = GetCpuLoad(CpuIndex);
-                if (Probe_IF_Error(FoundValidCpu) || !FoundValidCpu || Load < MinLoad)
+                uint32_t Load = GetCpuReadyCount(CpuIndex);
+                if (Load < MinLoad)
                 {
-                    MinLoad       = Load;
-                    BestCpu       = CpuIndex;
-                    FoundValidCpu = true;
+                    MinLoad = Load;
+                    BestCpu = CpuIndex;
                 }
             }
         }
 
-        return FoundValidCpu ? BestCpu : Nothing;
+        return BestCpu;
     }
 
     return FindLeastLoadedCpu();
@@ -410,19 +516,15 @@ ThreadExecute(Thread* __ThreadPtr__, SysErr* __Err__)
         return;
     }
 
-    /* Determine best CPU for this thread */
     uint32_t TargetCpu = CalculateOptimalCpu(__ThreadPtr__);
 
-    AcquireSpinLock(&ThreadListLock, __Err__);
-    __ThreadPtr__->LastCpu = TargetCpu;
-    __ThreadPtr__->State   = ThreadStateReady;
-    ReleaseSpinLock(&ThreadListLock, __Err__);
+    __atomic_store_n(&__ThreadPtr__->LastCpu, TargetCpu, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&__ThreadPtr__->State, ThreadStateReady, __ATOMIC_SEQ_CST);
 
-    /* Enqueue thread */
     AddThreadToReadyQueue(TargetCpu, __ThreadPtr__, __Err__);
 
     PDebug("Thread %u assigned to CPU %u (Load: %u)\n",
-           __ThreadPtr__->ThreadId,
+           __atomic_load_n(&__ThreadPtr__->ThreadId, __ATOMIC_SEQ_CST),
            TargetCpu,
            GetCpuLoad(TargetCpu));
 }
@@ -445,14 +547,13 @@ ThreadExecuteMultiple(Thread** __ThreadArray__, uint32_t __ThreadCount__, SysErr
         }
 
         uint32_t TargetCpu = CalculateOptimalCpu(ThreadPtr);
-        AcquireSpinLock(&ThreadListLock, __Err__);
-        ThreadPtr->LastCpu = TargetCpu;
-        ThreadPtr->State   = ThreadStateReady;
-        ReleaseSpinLock(&ThreadListLock, __Err__);
+        __atomic_store_n(&ThreadPtr->LastCpu, TargetCpu, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&ThreadPtr->State, ThreadStateReady, __ATOMIC_SEQ_CST);
+
         AddThreadToReadyQueue(TargetCpu, ThreadPtr, __Err__);
 
-        PDebug("Thread %u \u2192 CPU %u (Load: %u)\n",
-               ThreadPtr->ThreadId,
+        PDebug("Thread %u -> CPU %u (Load: %u)\n",
+               __atomic_load_n(&ThreadPtr->ThreadId, __ATOMIC_SEQ_CST),
                TargetCpu,
                GetCpuLoad(TargetCpu));
     }
@@ -467,10 +568,9 @@ LoadBalanceThreads(SysErr* __Err__)
     uint32_t MaxCpu  = 0;
     uint32_t MinCpu  = 0;
 
-    /* Gather load information */
     for (uint32_t CpuIndex = 0; CpuIndex < Smp.CpuCount; CpuIndex++)
     {
-        CpuLoads[CpuIndex] = GetCpuLoad(CpuIndex);
+        CpuLoads[CpuIndex] = GetCpuReadyCount(CpuIndex);
 
         if (CpuLoads[CpuIndex] > MaxLoad)
         {
@@ -485,26 +585,24 @@ LoadBalanceThreads(SysErr* __Err__)
         }
     }
 
-    /* Only perform migration if load difference is significant */
     if (MaxLoad > MinLoad + 2)
     {
         Thread* ThreadToMigrate = GetNextThread(MaxCpu);
         if (ThreadToMigrate)
         {
-            if (ThreadToMigrate->CpuAffinity == 0xFFFFFFFF ||
-                (ThreadToMigrate->CpuAffinity & (1 << MinCpu)))
+            uint32_t Affinity = __atomic_load_n(&ThreadToMigrate->CpuAffinity, __ATOMIC_SEQ_CST);
+            if (Affinity == 0xFFFFFFFF || (Affinity & (1u << MinCpu)))
             {
-                ThreadToMigrate->LastCpu = MinCpu;
+                __atomic_store_n(&ThreadToMigrate->LastCpu, MinCpu, __ATOMIC_SEQ_CST);
                 AddThreadToReadyQueue(MinCpu, ThreadToMigrate, __Err__);
 
                 PDebug("Migrated Thread %u from CPU %u to CPU %u\n",
-                       ThreadToMigrate->ThreadId,
+                       __atomic_load_n(&ThreadToMigrate->ThreadId, __ATOMIC_SEQ_CST),
                        MaxCpu,
                        MinCpu);
             }
             else
             {
-                /* Put thread back into original CPU’s ready queue if migration failed */
                 AddThreadToReadyQueue(MaxCpu, ThreadToMigrate, __Err__);
             }
         }
@@ -544,27 +642,30 @@ GetSystemLoadStats(uint32_t*       __TotalThreads__,
 
     if (__TotalThreads__)
     {
-        *__TotalThreads__ = TotalLoad;
+        __atomic_store_n(__TotalThreads__, TotalLoad, __ATOMIC_SEQ_CST);
     }
     if (__AverageLoad__)
     {
-        *__AverageLoad__ = (Smp.CpuCount > 0) ? TotalLoad / Smp.CpuCount : Nothing;
+        __atomic_store_n(__AverageLoad__,
+                         (Smp.CpuCount > 0) ? TotalLoad / Smp.CpuCount : Nothing,
+                         __ATOMIC_SEQ_CST);
     }
     if (__MaxLoad__)
     {
-        *__MaxLoad__ = MaxLoad;
+        __atomic_store_n(__MaxLoad__, MaxLoad, __ATOMIC_SEQ_CST);
     }
     if (__MinLoad__)
     {
-        *__MinLoad__ = MinLoad;
+        __atomic_store_n(__MinLoad__, MinLoad, __ATOMIC_SEQ_CST);
     }
 }
+
+/*tc*/
 
 void
 ThreadYield(SysErr* __Err__ _unused)
 {
-    /*Software Interrupt*/
-    __asm__ volatile("int $0x20");
+    __asm__ volatile("int $0x20"); /*Simple*/
 }
 
 void
@@ -575,15 +676,17 @@ ThreadSleep(uint64_t __Milliseconds__, SysErr* __Err__)
 
     if (Current)
     {
-        Current->State      = ThreadStateSleeping;
-        Current->WaitReason = WaitReasonSleep;
-        Current->WakeupTime = GetSystemTicks() + __Milliseconds__;
+        __atomic_store_n(&Current->State, ThreadStateSleeping, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&Current->WaitReason, WaitReasonSleep, __ATOMIC_SEQ_CST);
+        __atomic_store_n(
+            &Current->WakeupTime, GetSystemTicks() + __Milliseconds__, __ATOMIC_SEQ_CST);
 
-        __asm__ volatile("int $0x20");
+        RemoveThreadFromAllQueues(CpuId, Current, __Err__);
+
+        ThreadYield(__Err__);
     }
     else
     {
-        /*busy wait*/
         uint64_t WakeupTime = GetSystemTicks() + __Milliseconds__;
         while (GetSystemTicks() < WakeupTime)
         {
@@ -598,40 +701,41 @@ ThreadExit(uint32_t __ExitCode__, SysErr* __Err__)
     uint32_t CpuId   = GetCurrentCpuId();
     Thread*  Current = GetCurrentThread(CpuId);
 
-    if (Probe_IF_Error(Current) || !Current || Probe_IF_Error(Current))
+    if (Probe_IF_Error(Current) || !Current)
     {
         SlotError(__Err__, -NoOperations);
         return;
     }
 
-    Current->State    = ThreadStateZombie;
-    Current->ExitCode = __ExitCode__;
+    __atomic_store_n(&Current->State, ThreadStateZombie, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&Current->ExitCode, __ExitCode__, __ATOMIC_SEQ_CST);
 
-    PInfo("Thread %u exiting with code %u\n", Current->ThreadId, __ExitCode__);
+    PInfo("Thread %u exiting with code %u\n",
+          __atomic_load_n(&Current->ThreadId, __ATOMIC_SEQ_CST),
+          __ExitCode__);
 
     AddThreadToZombieQueue(CpuId, Current, __Err__);
+
+    RemoveThreadFromAllQueues(CpuId, Current, __Err__);
+
     ThreadYield(__Err__);
 }
+
+/*queries*/
 
 Thread*
 FindThreadById(uint32_t __ThreadId__)
 {
-    SysErr  err;
-    SysErr* Error = &err;
-    AcquireSpinLock(&ThreadListLock, Error);
-
-    Thread* Current = ThreadList;
+    Thread* Current = __atomic_load_n(&ThreadList, __ATOMIC_SEQ_CST);
     while (Current)
     {
-        if (Current->ThreadId == __ThreadId__)
+        if (__atomic_load_n(&Current->ThreadId, __ATOMIC_SEQ_CST) == __ThreadId__)
         {
-            ReleaseSpinLock(&ThreadListLock, Error);
             return Current;
         }
-        Current = Current->Next;
+        Current = __atomic_load_n(&Current->Next, __ATOMIC_SEQ_CST);
     }
 
-    ReleaseSpinLock(&ThreadListLock, Error);
     return Error_TO_Pointer(-NoSuch);
 }
 
@@ -640,40 +744,50 @@ GetThreadCount(void)
 {
     uint32_t Count = 0;
 
-    SysErr  err;
-    SysErr* Error = &err;
-    AcquireSpinLock(&ThreadListLock, Error);
-    Thread* Current = ThreadList;
+    Thread* Current = __atomic_load_n(&ThreadList, __ATOMIC_SEQ_CST);
     while (Current)
     {
         Count++;
-        Current = Current->Next;
+        Current = __atomic_load_n(&Current->Next, __ATOMIC_SEQ_CST);
     }
-    ReleaseSpinLock(&ThreadListLock, Error);
 
     return Count;
 }
 
+/*utils*/
 void
 WakeSleepingThreads(SysErr* __Err__)
 {
     uint64_t CurrentTicks = GetSystemTicks();
 
-    AcquireSpinLock(&ThreadListLock, __Err__);
-    Thread* Current = ThreadList;
+    Thread* Current = __atomic_load_n(&ThreadList, __ATOMIC_SEQ_CST);
 
     while (Current)
     {
-        if (Current->State == ThreadStateSleeping && Current->WakeupTime <= CurrentTicks)
-        {
-            Current->State      = ThreadStateReady;
-            Current->WaitReason = WaitReasonNone;
-            Current->WakeupTime = 0;
-        }
-        Current = Current->Next;
-    }
+        Thread* Next = __atomic_load_n(&Current->Next, __ATOMIC_SEQ_CST);
 
-    ReleaseSpinLock(&ThreadListLock, __Err__);
+        ThreadState CurrentState = __atomic_load_n(&Current->State, __ATOMIC_SEQ_CST);
+        if (CurrentState == ThreadStateSleeping)
+        {
+            uint64_t WakeupTime = __atomic_load_n(&Current->WakeupTime, __ATOMIC_SEQ_CST);
+            if (WakeupTime != 0 && WakeupTime <= CurrentTicks)
+            {
+                __atomic_store_n(&Current->State, ThreadStateReady, __ATOMIC_SEQ_CST);
+                __atomic_store_n(&Current->WaitReason, WaitReasonNone, __ATOMIC_SEQ_CST);
+                __atomic_store_n(&Current->WakeupTime, 0ull, __ATOMIC_SEQ_CST);
+
+                uint32_t CpuId = __atomic_load_n(&Current->LastCpu, __ATOMIC_SEQ_CST);
+                if (CpuId >= MaxCPUs)
+                {
+                    CpuId = CalculateOptimalCpu(Current);
+                }
+
+                AddThreadToReadyQueue(CpuId, Current, __Err__);
+            }
+        }
+
+        Current = Next;
+    }
 }
 
 void
@@ -685,42 +799,43 @@ DumpThreadInfo(Thread* __ThreadPtr__, SysErr* __Err__)
         return;
     }
 
-    PInfo("Thread %u (%s):\n", __ThreadPtr__->ThreadId, __ThreadPtr__->Name);
+    PInfo("Thread %u (%s):\n",
+          __atomic_load_n(&__ThreadPtr__->ThreadId, __ATOMIC_SEQ_CST),
+          __ThreadPtr__->Name);
     PInfo("  State: %u, Type: %u, Priority: %u\n",
-          __ThreadPtr__->State,
-          __ThreadPtr__->Type,
-          __ThreadPtr__->Priority);
+          __atomic_load_n(&__ThreadPtr__->State, __ATOMIC_SEQ_CST),
+          __atomic_load_n(&__ThreadPtr__->Type, __ATOMIC_SEQ_CST),
+          __atomic_load_n(&__ThreadPtr__->Priority, __ATOMIC_SEQ_CST));
     PInfo("  CPU Time: %llu, Context Switches: %llu\n",
-          __ThreadPtr__->CpuTime,
-          __ThreadPtr__->ContextSwitches);
+          __atomic_load_n(&__ThreadPtr__->CpuTime, __ATOMIC_SEQ_CST),
+          __atomic_load_n(&__ThreadPtr__->ContextSwitches, __ATOMIC_SEQ_CST));
     PInfo("  Stack: K=0x%llx U=0x%llx Size=%u\n",
-          __ThreadPtr__->KernelStack,
-          __ThreadPtr__->UserStack,
-          __ThreadPtr__->StackSize);
-    PInfo("  Memory: %u KB, Affinity: 0x%x\n",
-          __ThreadPtr__->MemoryUsage,
-          __ThreadPtr__->CpuAffinity);
+          __atomic_load_n(&__ThreadPtr__->KernelStack, __ATOMIC_SEQ_CST),
+          __atomic_load_n(&__ThreadPtr__->UserStack, __ATOMIC_SEQ_CST),
+          __atomic_load_n(&__ThreadPtr__->StackSize, __ATOMIC_SEQ_CST));
+    PInfo("  Memory: %u KB, Affinity: 0x%x, LastCpu: %u\n",
+          __atomic_load_n(&__ThreadPtr__->MemoryUsage, __ATOMIC_SEQ_CST),
+          __atomic_load_n(&__ThreadPtr__->CpuAffinity, __ATOMIC_SEQ_CST),
+          __atomic_load_n(&__ThreadPtr__->LastCpu, __ATOMIC_SEQ_CST));
 }
 
 void
-DumpAllThreads(SysErr* __Err__)
+DumpAllThreads(SysErr* __Err__ _unused)
 {
-    AcquireSpinLock(&ThreadListLock, __Err__);
-    Thread*  Current = ThreadList;
+    Thread*  Current = __atomic_load_n(&ThreadList, __ATOMIC_SEQ_CST);
     uint32_t Count   = 0;
 
     while (Current)
     {
-        PInfo("Thread %u: %s (State: %u, CPU: %u)\n",
-              Current->ThreadId,
+        PInfo("Thread %u: %s (State: %u, CPU: %u, Prio: %u)\n",
+              __atomic_load_n(&Current->ThreadId, __ATOMIC_SEQ_CST),
               Current->Name,
-              Current->State,
-              Current->LastCpu);
-        Current = Current->Next;
+              __atomic_load_n(&Current->State, __ATOMIC_SEQ_CST),
+              __atomic_load_n(&Current->LastCpu, __ATOMIC_SEQ_CST),
+              __atomic_load_n(&Current->Priority, __ATOMIC_SEQ_CST));
+        Current = __atomic_load_n(&Current->Next, __ATOMIC_SEQ_CST);
         Count++;
     }
-
-    ReleaseSpinLock(&ThreadListLock, __Err__);
 
     PInfo("Total threads: %u\n", Count);
 }

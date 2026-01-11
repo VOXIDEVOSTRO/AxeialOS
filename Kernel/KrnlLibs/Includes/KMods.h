@@ -17,7 +17,7 @@ typedef struct ModuleRecord
 
     void (*InitFn)(void);
     void (*ExitFn)(void);
-    int (*ProbeFn)(void);
+    int (*ProbeFn)(void); /*For probe drivers*/
 
     int                  RefCount;
     struct ModuleRecord* Next;

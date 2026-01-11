@@ -27,17 +27,15 @@ typedef enum
 
 typedef enum
 {
+    DriverTypeDefault,
     DriverTypeInput,
     DriverTypeStorage,
     DriverTypeNetwork,
     DriverTypeGraphics,
     DriverTypeAudio,
-    DriverTypeUsb,
-    DriverTypePci,
-    DriverTypeSerial,
-    DriverTypeSystem,
-    DriverTypeCustom
-
+    DriverTypeUSB,
+    DriverTypePCI,
+    DriverTypeSerial
 } DriverType;
 
 typedef struct DriverInfo
@@ -97,6 +95,7 @@ typedef struct DriverManagerContext
 } DriverManagerContext;
 
 extern DriverManagerContext DriverManager;
+extern const char*          DriverTypes[];
 
 int  InitializeDriverManager(void);
 void ShutdownDriverManager(SysErr* __Err__);

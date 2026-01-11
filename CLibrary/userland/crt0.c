@@ -1,6 +1,11 @@
 #include <reent.h>
+#include <string.h>
+#include <sys/reent.h>
+
 extern void __libc_init_array(void);
 extern int  main(void);
+void        _exit(int __status__);
+void        __sinit(struct _reent* r);
 
 void
 _init(void)

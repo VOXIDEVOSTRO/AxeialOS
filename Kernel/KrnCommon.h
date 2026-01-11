@@ -7,6 +7,7 @@
 #include <BootConsole.h>
 #include <BootImg.h>
 #include <DevFS.h>
+#include <DevMgr.h>
 #include <DrvMgr.h>
 #include <EarlyBootFB.h>
 #include <GDT.h>
@@ -23,6 +24,7 @@
 #include <POSIXProc.h>
 #include <POSIXProcFS.h>
 #include <POSIXSignals.h>
+#include <ProbeMgr.h>
 #include <SMP.h>
 #include <Serial.h>
 #include <SymAP.h>
@@ -40,4 +42,4 @@ extern bool InitComplete;
 
 /*TEST handles*/
 void __TEST__Proc(void);
-void __TEST__DriverManager(void);
+void __TEST__Thrd(void);

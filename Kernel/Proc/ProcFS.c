@@ -68,12 +68,12 @@ ProcFsNotifyProcAdded(PosixProc* __Proc__)
     SysErr  err;
     SysErr* Error = &err;
 
-    AcquireSpinLock(&ProcPriv->Lock, Error);
-
     ProcPidEntry* E = &__ProcPidCache__[__Proc__->Pid];
-    if (E->Pid == __Proc__->Pid && E->DirNode)
+
+    long        curPid = __atomic_load_n(&E->Pid, __ATOMIC_SEQ_CST);
+    ProcFsNode* curDir = __atomic_load_n(&E->DirNode, __ATOMIC_SEQ_CST);
+    if (curPid == __Proc__->Pid && curDir)
     {
-        ReleaseSpinLock(&ProcPriv->Lock, Error);
         return SysOkay;
     }
 
@@ -83,7 +83,6 @@ ProcFsNotifyProcAdded(PosixProc* __Proc__)
     ProcFsNode* D = (ProcFsNode*)KMalloc(sizeof(ProcFsNode));
     if (Probe_IF_Error(D) || !D)
     {
-        ReleaseSpinLock(&ProcPriv->Lock, Error);
         return -BadAlloc;
     }
     memset(D, 0, sizeof(*D));
@@ -92,7 +91,6 @@ ProcFsNotifyProcAdded(PosixProc* __Proc__)
     if (Probe_IF_Error(D->Name) || !D->Name)
     {
         KFree(D, Error);
-        ReleaseSpinLock(&ProcPriv->Lock, Error);
         return -BadAlloc;
     }
     strcpy(D->Name, Num, (uint32_t)(strlen(Num) + 1));
@@ -100,10 +98,9 @@ ProcFsNotifyProcAdded(PosixProc* __Proc__)
     D->Perm.Mode = VModeRUSR | VModeRGRP | VModeROTH | VModeXUSR | VModeXGRP | VModeXOTH;
     D->Priv      = (void*)__Proc__;
 
-    E->Pid     = __Proc__->Pid;
-    E->DirNode = D;
+    __atomic_store_n(&E->Pid, __Proc__->Pid, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&E->DirNode, D, __ATOMIC_SEQ_CST);
 
-    ReleaseSpinLock(&ProcPriv->Lock, Error);
     return SysOkay;
 }
 
@@ -118,21 +115,21 @@ ProcFsNotifyProcRemoved(PosixProc* __Proc__)
     SysErr  err;
     SysErr* Error = &err;
 
-    AcquireSpinLock(&ProcPriv->Lock, Error);
-
     ProcPidEntry* E = &__ProcPidCache__[__Proc__->Pid];
-    if (E->Pid == __Proc__->Pid && E->DirNode)
+
+    long        curPid = __atomic_load_n(&E->Pid, __ATOMIC_SEQ_CST);
+    ProcFsNode* curDir = __atomic_load_n(&E->DirNode, __ATOMIC_SEQ_CST);
+    if (curPid == __Proc__->Pid && curDir)
     {
-        if (E->DirNode->Name)
+        if (curDir->Name)
         {
-            KFree(E->DirNode->Name, Error);
+            KFree(curDir->Name, Error);
         }
-        KFree(E->DirNode, Error);
-        E->DirNode = NULL;
-        E->Pid     = 0;
+        KFree(curDir, Error);
+        __atomic_store_n(&E->DirNode, NULL, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&E->Pid, 0, __ATOMIC_SEQ_CST);
     }
 
-    ReleaseSpinLock(&ProcPriv->Lock, Error);
     return SysOkay;
 }
 
@@ -184,7 +181,7 @@ ProcRead(File* __File__, void* __Buf__, long __Len__)
         if (strcmp(Nm, "uptime") == 0)
         {
             uint64_t ticks = GetSystemTicks();
-            uint64_t secs  = ticks / 1000; /* 1 tick = 1ms */
+            uint64_t secs  = ticks / 1000;
             char     Num[32];
             long     N = 0;
 
@@ -192,7 +189,6 @@ ProcRead(File* __File__, void* __Buf__, long __Len__)
             strcpy(Buf + N, Num, (uint32_t)(Cap - N));
             N += (long)StringLength(Num);
 
-            /* space separator */
             if (N < Cap)
             {
                 Buf[N++] = ' ';
@@ -202,7 +198,6 @@ ProcRead(File* __File__, void* __Buf__, long __Len__)
             strcpy(Buf + N, Num, (uint32_t)(Cap - N));
             N += (long)StringLength(Num);
 
-            /* newline terminator */
             if (N < Cap)
             {
                 Buf[N++] = '\n';
@@ -410,17 +405,19 @@ __GetCursor__(Vnode* __Node__)
 {
     for (long I = 0; I < MaxProcFsCursors; I++)
     {
-        if (__ProcDirCursors__[I].Node == __Node__)
+        Vnode* n = __atomic_load_n(&__ProcDirCursors__[I].Node, __ATOMIC_SEQ_CST);
+        if (n == __Node__)
         {
             return &__ProcDirCursors__[I];
         }
     }
     for (long J = 0; J < MaxProcFsCursors; J++)
     {
-        if (!__ProcDirCursors__[J].Node)
+        Vnode* n = __atomic_load_n(&__ProcDirCursors__[J].Node, __ATOMIC_SEQ_CST);
+        if (!n)
         {
-            __ProcDirCursors__[J].Node  = __Node__;
-            __ProcDirCursors__[J].Index = 0;
+            __atomic_store_n(&__ProcDirCursors__[J].Node, __Node__, __ATOMIC_SEQ_CST);
+            __atomic_store_n(&__ProcDirCursors__[J].Index, 0, __ATOMIC_SEQ_CST);
             return &__ProcDirCursors__[J];
         }
     }
@@ -432,7 +429,8 @@ __AdvanceCursor__(ProcDirCursorEntry* __C__)
 {
     if (__C__)
     {
-        __C__->Index++;
+        long idx = __atomic_load_n(&__C__->Index, __ATOMIC_SEQ_CST);
+        __atomic_store_n(&__C__->Index, idx + 1, __ATOMIC_SEQ_CST);
     }
 }
 
@@ -441,7 +439,7 @@ __ResetCursor__(ProcDirCursorEntry* __C__)
 {
     if (__C__)
     {
-        __C__->Index = 0;
+        __atomic_store_n(&__C__->Index, 0, __ATOMIC_SEQ_CST);
     }
 }
 
@@ -469,7 +467,7 @@ ProcReaddir(Vnode* __Node__, void* __Buf__, long __Len__)
     }
 
     VfsDirEnt* Ent = (VfsDirEnt*)__Buf__;
-    long       Idx = Cur->Index;
+    long       Idx = __atomic_load_n(&Cur->Index, __ATOMIC_SEQ_CST);
 
     if (Idx == 0)
     {
@@ -514,10 +512,8 @@ ProcReaddir(Vnode* __Node__, void* __Buf__, long __Len__)
 
         for (long pid = 1; pid < ProcMaxPIDS; pid++)
         {
-            AcquireSpinLock(&ProcPriv->Lock, Error);
             ProcPidEntry* E = &__ProcPidCache__[pid];
-            ProcFsNode*   D = E->DirNode;
-            ReleaseSpinLock(&ProcPriv->Lock, Error);
+            ProcFsNode*   D = __atomic_load_n(&E->DirNode, __ATOMIC_SEQ_CST);
 
             if (Probe_IF_Error(D) || !D || Probe_IF_Error(D->Priv) || !D->Priv)
             {
@@ -729,10 +725,8 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
         long pid = atol(__Name__);
         if (pid > 0 && pid < ProcMaxPIDS)
         {
-            AcquireSpinLock(&ProcPriv->Lock, Error);
             ProcPidEntry* E = &__ProcPidCache__[pid];
-            ProcFsNode*   D = E->DirNode;
-            ReleaseSpinLock(&ProcPriv->Lock, Error);
+            ProcFsNode*   D = __atomic_load_n(&E->DirNode, __ATOMIC_SEQ_CST);
 
             if (D && D->Priv)
             {
@@ -965,7 +959,7 @@ ProcSuperStatFs(Superblock* __Sb__, VfsStatFs* __Out__)
     {
         return -BadArgs;
     }
-    __Out__->TypeId  = 0xDEAD7001; /*Ah*/
+    __Out__->TypeId  = 0xDEAD7001;
     __Out__->Bsize   = 1;
     __Out__->Blocks  = 0;
     __Out__->Bfree   = 0;
@@ -1009,7 +1003,6 @@ ProcFsInit(void)
     SysErr* Error = &err;
 
     memset(ProcPriv, 0, sizeof(*ProcPriv));
-    InitializeSpinLock(&ProcPriv->Lock, "procfs", Error);
 
     memset(__ProcPidCache__, 0, sizeof(__ProcPidCache__));
 

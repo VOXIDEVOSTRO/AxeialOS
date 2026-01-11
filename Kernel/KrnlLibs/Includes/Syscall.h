@@ -4,7 +4,9 @@
 #include <IDT.h>
 
 #include <Errnos.h>
-#define MaxSysNo 99999
+#define MaxSysNo         99999
+#define SyscallIntNo     0x80
+#define SysInterruptGate 0xEE
 
 typedef int64_t (*SysHandle)(uint64_t __Arg1__,
                              uint64_t __Arg2__,

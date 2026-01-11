@@ -82,7 +82,10 @@ anyway thanks for actually trying it out.
 
 You are free to experiment on this operating system as much as you want
 
+<<<<<<< HEAD
 DRIVER NOTE: All drivers/kernel modules(.ko) have been deprecated because of the kernel rewrite! Will be fixed after the driver overhaul.
 
+=======
+>>>>>>> b571019 (scheduler and thread overhaul with more stability changes and major bug fixes)
 join my community! 
 https://discord.gg/dEPMKfktBt

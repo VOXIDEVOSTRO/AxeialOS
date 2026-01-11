@@ -27,7 +27,6 @@
 #include <Timer.h>
 #include <VFS.h>
 #include <VMM.h>
-#include <VirtBin.h>
 
 #define __attribute_unused__ __attribute__((unused))
 
@@ -741,10 +740,10 @@ __Handle__Mmap(uint64_t __Addr__,
 
     (void)__Fd__;
     (void)__Off__;
-    int RIdx = VirtMapRangeZeroed(Proc->Space, VaBase, MapLen, PteFlags);
+    int RIdx = MapRangeZeroed(Proc->Space, VaBase, MapLen, PteFlags);
     if (RIdx != 0)
     {
-        PError("mmap: VirtMapRangeZeroed failed base=0x%llx len=0x%llx\n",
+        PError("mmap: MapRangeZeroed failed base=0x%llx len=0x%llx\n",
                (unsigned long long)VaBase,
                (unsigned long long)MapLen);
         return -BadSystemcall;
@@ -831,7 +830,7 @@ __Handle__Brk(uint64_t __NewBrk__,
     {
         uint64_t GrowLen  = Want - Br->BrkCur;
         uint64_t PteFlags = PTEPRESENT | PTEUSER | PTEWRITABLE | PTENOEXECUTE;
-        int      RIdx     = VirtMapRangeZeroed(Proc->Space, Br->BrkCur, GrowLen, PteFlags);
+        int      RIdx     = MapRangeZeroed(Proc->Space, Br->BrkCur, GrowLen, PteFlags);
         if (RIdx != 0)
         {
             return -BadSystemcall;

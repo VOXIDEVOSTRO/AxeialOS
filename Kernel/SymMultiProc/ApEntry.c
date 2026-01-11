@@ -6,6 +6,7 @@
 #include <Timer.h>
 #include <VMM.h>
 
+/*Ap's will jump here*/
 void
 ApEntryPoint(struct limine_smp_info* __CpuInfo__)
 {
@@ -23,13 +24,13 @@ ApEntryPoint(struct limine_smp_info* __CpuInfo__)
     SysErr* Error = &err;
 
     Smp.Cpus[CpuNumber].Status  = CPU_STATUS_ONLINE;
-    Smp.Cpus[CpuNumber].Started = 1; /* Boolean flag indicating startup completion */
+    Smp.Cpus[CpuNumber].Started = 1;
 
     __atomic_fetch_add(&CpuStartupCount, 1, __ATOMIC_SEQ_CST);
     __atomic_fetch_add(&Smp.OnlineCpus, 1, __ATOMIC_SEQ_CST);
 
     uint64_t CpuStackPhys = AllocPages(SMPCPUStackSize / 0x1000);
-    if (Probe_IF_Error(CpuStackPhys) || !CpuStackPhys)
+    if (!CpuStackPhys)
     {
         while (1)
         {
@@ -48,28 +49,21 @@ ApEntryPoint(struct limine_smp_info* __CpuInfo__)
 
     unsigned long Cr0, Cr4;
 
-    /* Read CR0 and CR4 */
     __asm__ volatile("mov %%cr0, %0" : "=r"(Cr0));
     __asm__ volatile("mov %%cr4, %0" : "=r"(Cr4));
-
-    /* CR0: clear EM (bit 2), set MP (bit 1), clear TS (bit 3) */
     Cr0 &= ~(1UL << 2); /* EM = 0 */
     Cr0 |= (1UL << 1);  /* MP = 1 */
     Cr0 &= ~(1UL << 3); /* TS = 0 */
     __asm__ volatile("mov %0, %%cr0" ::"r"(Cr0) : "memory");
-
-    /* CR4: set OSFXSR (bit 9) and OSXMMEXCPT (bit 10) for SSE */
     Cr4 |= (1UL << 9) | (1UL << 10);
     __asm__ volatile("mov %0, %%cr4" ::"r"(Cr4) : "memory");
-
-    /* Initialize x87/SSE state */
     __asm__ volatile("fninit");
 
     SetupApicTimerForThisCpu(Error);
 
     InitializeCpuScheduler(CpuNumber, Error);
 
-    SetIdtEntry(0x80, (uint64_t)SysEntASM, KernelCodeSelector, 0xEE, Error);
+    SetIdtEntry(SyscallIntNo, (uint64_t)SysEntASM, KernelCodeSelector, SysInterruptGate, Error);
 
     __asm__ volatile("sti");
 

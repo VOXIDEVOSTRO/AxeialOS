@@ -7,21 +7,6 @@
 #include <sys/time.h>
 #include <sys/times.h>
 #include <unistd.h>
-
-/*
-
-
-
-
-
-    ONE HUGE NOTE: This test application is deprecated because of the kernel rewrite!
-
-
-
-
-
-*/
-
 /*take full advantage of the newlib*/
 
 #define PROT_READ     0x1
@@ -32,10 +17,12 @@
 #define MAP_ANONYMOUS 0x20
 #define MAP_FAILED    ((void*)-1)
 
+int   munmap(void* __addr__, size_t __len__);
+void* mmap(void* __addr__, size_t __len__, int __prot__, int __flags__, int __fd__, off_t __off__);
+
 int
 main(void)
 {
-    /* 1) stdio baseline */
     printf("[stdio] Hello AxeOS via newlib!\n");
     fprintf(stderr, "[stdio] stderr path alive\n");
     fflush(stdout);
@@ -140,12 +127,6 @@ main(void)
     else if (pid > 0)
     {
         printf("Pid is NON 0!\n");
-        /*Anyway it would spin forever*/
-        /*
-        int   status = 0;
-        pid_t r      = waitpid(pid, &status, 0);
-        printf("[fork] parent reaped pid=%ld status=%d ret=%ld\n", (long)pid, status, (long)r);
-        */
     }
     else
     {

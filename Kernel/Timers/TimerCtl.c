@@ -62,7 +62,7 @@ TimerHandler(InterruptFrame* __Frame__, SysErr* __Err__)
     __atomic_fetch_add(&TimerInterruptCount, 1, __ATOMIC_SEQ_CST);
     __atomic_fetch_add(&Timer.SystemTicks, 1, __ATOMIC_SEQ_CST);
 
-    WakeupSleepingThreads(CpuId, __Err__);
+    WakeSleepingThreads(__Err__);
     Schedule(CpuId, __Frame__, __Err__);
 
     volatile uint32_t* EoiReg = (volatile uint32_t*)(CpuData->ApicBase + TimerApicRegEoi);

@@ -2,13 +2,15 @@
 #include <SMP.h>
 #include <Sync.h>
 
+#define KernelValue 0xFFFFFFFF
+
 void
 InitializeMutex(Mutex* __Mutex__, const char* __Name__, SysErr* __Err__)
 {
-    __Mutex__->Lock           = 0;          /* Initially unlocked */
-    __Mutex__->Owner          = 0xFFFFFFFF; /* No owner (kernel value) */
-    __Mutex__->RecursionCount = 0;          /* No recursive locks */
-    __Mutex__->Name           = __Name__;   /* Assign name for debugging */
+    __Mutex__->Lock           = 0;           /* Initially unlocked */
+    __Mutex__->Owner          = KernelValue; /* No owner (kernel value) */
+    __Mutex__->RecursionCount = 0;           /* No recursive locks */
+    __Mutex__->Name           = __Name__;    /* Assign name for debugging */
 }
 
 void
@@ -55,7 +57,7 @@ ReleaseMutex(Mutex* __Mutex__, SysErr* __Err__)
 
     if (__Mutex__->RecursionCount == 0)
     {
-        __Mutex__->Owner = 0xFFFFFFFF;                           /* Reset owner to kernel/none */
+        __Mutex__->Owner = KernelValue;                          /* Reset owner to kernel/none */
         __atomic_store_n(&__Mutex__->Lock, 0, __ATOMIC_RELEASE); /* Unlock atomically */
     }
 }

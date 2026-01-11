@@ -35,10 +35,10 @@ Cflg := \
 FinalTemp := ../.Build
 LocalTemp := .Build
 
-# Driver configuration
-ModuleName := NameMe.ko
-DriverType := system
+ModuleName := Tty.ko
+DriverType := default
 InstallPath := $(FinalTemp)/sys/drvs/$(DriverType)
+
 
 Cs := $(wildcard *.c)
 Os := $(patsubst %.c,$(LocalTemp)/%.o,$(Cs))

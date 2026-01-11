@@ -1,8 +1,6 @@
 #include <AllTypes.h>
 #include <KrnPrintf.h>
 
-/*Just for test in handle __TEST__DriverManager*/
-
 int
 module_probe(void)
 {
