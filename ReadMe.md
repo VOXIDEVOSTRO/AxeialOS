@@ -61,7 +61,7 @@ sh Build.sh
 and for run script
 
 ```
-sh Run.sh <your choice>
+sh Run.sh <your choice> <SMP Cores> <Memory(also suffixed G/M/K)>
 ```
 
 Yay you have installed AxeialOS (or just tested it).
