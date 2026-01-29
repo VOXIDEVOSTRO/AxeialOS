@@ -1,5 +1,51 @@
 #include <Errnos.h>
 #include <KHeap.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGSLABC_Debug
+#    define LOGSLABC_PDebug(fmt, ...) PDebug("[KERNEL>>Slab.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSLABC_PDebug(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSLABC_Logs
+#    define LOGSLABC_PError(fmt, ...) PError("[KERNEL>>Slab.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSLABC_PError(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSLABC_Logs
+#    define LOGSLABC_PWarn(fmt, ...) PWarn("[KERNEL>>Slab.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSLABC_PWarn(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSLABC_Logs
+#    define LOGSLABC_PInfo(fmt, ...) PInfo("[KERNEL>>Slab.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSLABC_PInfo(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSLABC_Logs
+#    define LOGSLABC_PSuccess(fmt, ...) PSuccess("[KERNEL>>Slab.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSLABC_PSuccess(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 SlabCache*
 GetSlabCache(size_t __Size__)
@@ -12,6 +58,7 @@ GetSlabCache(size_t __Size__)
             return &KHeap.Caches[Index];
         }
     }
+    PushError("GetSlabCache", LOGSLABC_PError, "no suitable cache found in GetSlabCache", -NoSuch);
     return Error_TO_Pointer(-NoSuch); /*No suitable cache found*/
 }
 
@@ -24,7 +71,9 @@ AllocateSlab(uint32_t __ObjectSize__)
     uint64_t PhysAddr = AllocPage();
     if (!PhysAddr)
     {
-        return Error_TO_Pointer(-TooMany); /*Out of memory*/
+        PushError(
+            "AllocateSlab", LOGSLABC_PError, "out of physical memory in AllocateSlab", -Depleted);
+        return Error_TO_Pointer(-Depleted); /*Out of memory*/
     }
 
     Slab* NewSlab = (Slab*)PhysToVirt(PhysAddr);
@@ -39,15 +88,17 @@ AllocateSlab(uint32_t __ObjectSize__)
     uint8_t*    SlabEnd    = (uint8_t*)NewSlab + PageSize;
     SlabObject* PrevObject = 0; /*Previous object in free list*/
 
+    uint32_t AlignedSize = (__ObjectSize__ + 15) & ~15;
+
     /*Link in reverse order*/
-    while ((ObjectPtr + __ObjectSize__) <= SlabEnd)
+    while ((ObjectPtr + AlignedSize) <= SlabEnd)
     {
         SlabObject* Object = (SlabObject*)ObjectPtr;
-        Object->Next       = PrevObject;      /*Link to previous free object*/
-        Object->Magic      = FreeObjectMagic; /*Mark as free*/
-        PrevObject         = Object;          /*Update previous for next iteration*/
-        ObjectPtr += __ObjectSize__;          /*Move to next object position*/
-        NewSlab->FreeCount++;                 /*Count free objects*/
+        Object->Next       = PrevObject;
+        Object->Magic      = FreeObjectMagic;
+        PrevObject         = Object;
+        ObjectPtr += AlignedSize;
+        NewSlab->FreeCount++;
     }
 
     NewSlab->FreeList = PrevObject;
@@ -60,7 +111,11 @@ FreeSlab(Slab* __Slab__, SysErr* __Err__)
 {
     if (!__Slab__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("FreeSlab",
+                  LOGSLABC_PError,
+                  "bad slab pointer in arguments of FreeSlab",
+                  -BadArguments);
         return;
     }
 

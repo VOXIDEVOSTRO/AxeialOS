@@ -2,7 +2,7 @@ Compiler := x86_64-elf-gcc
 Cflg := \
 -Wall \
 -Wextra \
--O2 \
+-O0 \
 -ffreestanding \
 -fno-stack-protector \
 -mno-red-zone \

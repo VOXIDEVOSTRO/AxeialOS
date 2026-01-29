@@ -1,5 +1,51 @@
 #include <IDT.h>
 #include <Timer.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGIRQHANDLERC_Debug
+#    define LOGIRQHANDLERC_PDebug(fmt, ...) PDebug("[KERNEL>>IRQHandler.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGIRQHANDLERC_PDebug(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGIRQHANDLERC_Logs
+#    define LOGIRQHANDLERC_PError(fmt, ...) PError("[KERNEL>>IRQHandler.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGIRQHANDLERC_PError(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGIRQHANDLERC_Logs
+#    define LOGIRQHANDLERC_PWarn(fmt, ...) PWarn("[KERNEL>>IRQHandler.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGIRQHANDLERC_PWarn(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGIRQHANDLERC_Logs
+#    define LOGIRQHANDLERC_PInfo(fmt, ...) PInfo("[KERNEL>>IRQHandler.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGIRQHANDLERC_PInfo(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGIRQHANDLERC_Logs
+#    define LOGIRQHANDLERC_PSuccess(fmt, ...) PSuccess("[KERNEL>>IRQHandler.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGIRQHANDLERC_PSuccess(fmt, ...)                                                      \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 void
 IrqHandler(InterruptFrame* __Frame__)

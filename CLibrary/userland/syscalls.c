@@ -1,16 +1,8 @@
-#include "../install/x86_64-elf/include/errno.h"
-#include "../install/x86_64-elf/include/stdint.h"
-#include "../install/x86_64-elf/include/stdlib.h"
-#include "../install/x86_64-elf/include/sys/resource.h"
-#include "../install/x86_64-elf/include/sys/select.h"
-#include "../install/x86_64-elf/include/sys/stat.h"
-#include "../install/x86_64-elf/include/sys/time.h"
-#include "../install/x86_64-elf/include/sys/times.h"
-#include "../install/x86_64-elf/include/sys/types.h"
+#include "noindef_minimaldeclaration.h"
 #include "sysmac.h"
 
 extern char  _end;
-static char* __heap_cursor__;
+static char* __heap_cursor__ __attribute__((unused));
 
 void*
 sbrk(ptrdiff_t __incr__)
@@ -19,14 +11,14 @@ sbrk(ptrdiff_t __incr__)
     if (__cur__ < 0)
     {
         errno = (int)(-__cur__);
-        return (void*)-1;
+        return (void*)-BadSystemcall;
     }
     int64_t __want__ = __cur__ + (int64_t)__incr__;
     int64_t __res__  = Syscall(SysBrk, (uint64_t)__want__, 0, 0, 0, 0, 0);
     if (__res__ < 0)
     {
         errno = (int)(-__res__);
-        return (void*)-1;
+        return (void*)-BadSystemcall;
     }
     return (void*)(uintptr_t)__cur__;
 }
@@ -38,7 +30,7 @@ read(int __fd__, void* __buf__, size_t __len__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
     return (ssize_t)r;
 }
@@ -50,7 +42,7 @@ write(int __fd__, const void* __buf__, size_t __len__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
     return (ssize_t)r;
 }
@@ -61,14 +53,14 @@ writev(int __fd__, const struct iovec* __iov__, int __iovcnt__)
     if (!__iov__ || __iovcnt__ <= 0)
     {
         errno = EINVAL;
-        return -1;
+        return -BadSystemcall;
     }
     int64_t r =
         Syscall(SysWritev, (uint64_t)__fd__, (uint64_t)__iov__, (uint64_t)__iovcnt__, 0, 0, 0);
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
     return (ssize_t)r;
 }
@@ -79,14 +71,14 @@ readv(int __fd__, const struct iovec* __iov__, int __iovcnt__)
     if (!__iov__ || __iovcnt__ <= 0)
     {
         errno = EINVAL;
-        return -1;
+        return -BadSystemcall;
     }
     int64_t r =
         Syscall(SysReadv, (uint64_t)__fd__, (uint64_t)__iov__, (uint64_t)__iovcnt__, 0, 0, 0);
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
     return (ssize_t)r;
 }
@@ -99,7 +91,7 @@ open(const char* __path__, int __flags__, int __mode__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
     return (int)r;
 }
@@ -111,9 +103,9 @@ close(int __fd__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 off_t
@@ -124,18 +116,18 @@ lseek(int __fd__, off_t __pos__, int __whence__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return (off_t)-1;
+        return (off_t)-BadSystemcall;
     }
     return (off_t)r;
 }
 
 int
-fstat(int __fd__, struct stat* __st__)
+fstat(int __fd__ __attribute__((unused)), struct stat* __st__)
 {
     if (!__st__)
     {
         errno = EINVAL;
-        return -1;
+        return -BadSystemcall;
     }
     /*Well it satisfies*/
     /*
@@ -144,14 +136,20 @@ fstat(int __fd__, struct stat* __st__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
     __st__->st_mode    = (__kst__.Mode);
     __st__->st_nlink   = (__kst__.Nlink);
     __st__->st_blksize = (__kst__.BlkSize);
     __st__->st_size    = (__kst__.Size);
     */
-    return 0;
+    return SysOkay;
+}
+
+int
+_fsync(int fd)
+{
+    return SysOkay;
 }
 
 int
@@ -162,7 +160,7 @@ isatty(int __fd__)
         return 1;
     }
     errno = ENOTTY;
-    return 0;
+    return SysOkay;
 }
 
 void
@@ -181,9 +179,9 @@ kill(pid_t __pid__, int __sig__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 pid_t
@@ -193,7 +191,7 @@ getpid(void)
     if (r < 0)
     {
         errno = (int)(-r);
-        return (pid_t)-1;
+        return (pid_t)-BadSystemcall;
     }
     return (pid_t)r;
 }
@@ -205,9 +203,9 @@ unlink(const char* __path__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -217,9 +215,9 @@ rename(const char* __old__, const char* __new__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -229,9 +227,9 @@ mkdir(const char* __path__, mode_t __mode__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -241,9 +239,9 @@ rmdir(const char* __path__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -253,9 +251,9 @@ gettimeofday(struct timeval* __tv__, void* __tz__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -265,9 +263,9 @@ nanosleep(const struct timespec* __req__, struct timespec* __rem__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -277,9 +275,9 @@ access(const char* __path__, int __mode__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -289,9 +287,9 @@ chdir(const char* __path__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 char*
@@ -320,7 +318,7 @@ select(
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
     return (int)r;
 }
@@ -332,7 +330,7 @@ ioctl(int __fd__, unsigned long __cmd__, void* __arg__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
     return (int)r;
 }
@@ -344,7 +342,7 @@ dup(int __fd__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
     return (int)r;
 }
@@ -356,7 +354,7 @@ dup2(int __oldfd__, int __newfd__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
     return (int)r;
 }
@@ -368,7 +366,7 @@ getppid(void)
     if (r < 0)
     {
         errno = (int)(-r);
-        return (pid_t)-1;
+        return (pid_t)-BadSystemcall;
     }
     return (pid_t)r;
 }
@@ -380,7 +378,7 @@ gettid(void)
     if (r < 0)
     {
         errno = (int)(-r);
-        return (pid_t)-1;
+        return (pid_t)-BadSystemcall;
     }
     return (pid_t)r;
 }
@@ -392,7 +390,7 @@ fork(void)
     if (r < 0)
     {
         errno = (int)(-r);
-        return (pid_t)-1;
+        return (pid_t)-BadSystemcall;
     }
     return (pid_t)r;
 }
@@ -405,9 +403,9 @@ execve(const char* __path__, char* const __argv__, char* const __envp__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 pid_t
@@ -423,7 +421,7 @@ wait4(pid_t __pid__, int* __status__, int __options__, struct rusage* __rusage__
     if (r < 0)
     {
         errno = (int)(-r);
-        return (pid_t)-1;
+        return (pid_t)-BadSystemcall;
     }
     return (pid_t)r;
 }
@@ -434,15 +432,15 @@ pipe(int __pipefd__[2])
     if (!__pipefd__)
     {
         errno = EINVAL;
-        return -1;
+        return -BadSystemcall;
     }
     int64_t r = Syscall(SysPipe, (uint64_t)__pipefd__, 0, 0, 0, 0, 0);
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -451,15 +449,15 @@ uname(struct utsname* __buf__)
     if (!__buf__)
     {
         errno = EINVAL;
-        return -1;
+        return -BadSystemcall;
     }
     int64_t r = Syscall(SysUname, (uint64_t)__buf__, 0, 0, 0, 0, 0);
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 void*
@@ -474,7 +472,7 @@ mmap(void* __addr__, size_t __len__, int __prot__, int __flags__, int __fd__, of
                         (uint64_t)__off__);
     if (r < 0)
     {
-#define MAP_FAILED ((void*)-1)
+#define MAP_FAILED ((void*)-BadSystemcall)
         errno = (int)(-r);
         return (void*)MAP_FAILED;
     }
@@ -488,9 +486,9 @@ munmap(void* __addr__, size_t __len__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -500,9 +498,9 @@ brk(void* __new_end__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -511,15 +509,15 @@ stat(const char* __path__, struct stat* __st__)
     if (!__path__ || !__st__)
     {
         errno = EINVAL;
-        return -1;
+        return -BadSystemcall;
     }
     int64_t r = Syscall(SysStat, (uint64_t)__path__, (uint64_t)__st__, 0, 0, 0, 0);
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 clock_t
@@ -528,13 +526,13 @@ times(struct tms* __buf__)
     if (!__buf__)
     {
         errno = EINVAL;
-        return (clock_t)-1;
+        return (clock_t)-BadSystemcall;
     }
     int64_t r = Syscall(SysTimes, (uint64_t)__buf__, 0, 0, 0, 0, 0);
     if (r < 0)
     {
         errno = (int)(-r);
-        return (clock_t)-1;
+        return (clock_t)-BadSystemcall;
     }
     return (clock_t)0;
 }
@@ -545,15 +543,15 @@ clock_gettime(clockid_t __clk_id__, struct timespec* __tp__)
     if (!__tp__)
     {
         errno = EINVAL;
-        return -1;
+        return -BadSystemcall;
     }
     int64_t r = Syscall(SysClockGettime, (uint64_t)__clk_id__, (uint64_t)__tp__, 0, 0, 0, 0);
     if (r < 0)
     {
         errno = (int)(-r);
-        return -1;
+        return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 pid_t
@@ -565,7 +563,7 @@ waitpid(pid_t __pid__, int* __status__, int __opt__)
     if (r < 0)
     {
         errno = (int)(-r);
-        return (pid_t)-1;
+        return (pid_t)-BadSystemcall;
     }
     return (pid_t)r;
 }

@@ -1,20 +1,92 @@
+/*
+    Lowest layer of Device Abstraction Mgr (DAM)
+    SubPart of Registry (Higher level after KModMgr)
+*/
+
 #include <DrvMgr.h>
 #include <KHeap.h>
 #include <KrnPrintf.h>
 #include <String.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGDRVREGC_Debug
+#    define LOGDRVREGC_PDebug(fmt, ...) PDebug("[KERNEL>>DrvReg.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDRVREGC_PDebug(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGDRVREGC_Logs
+#    define LOGDRVREGC_PError(fmt, ...) PError("[KERNEL>>DrvReg.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDRVREGC_PError(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGDRVREGC_Logs
+#    define LOGDRVREGC_PWarn(fmt, ...) PWarn("[KERNEL>>DrvReg.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDRVREGC_PWarn(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGDRVREGC_Logs
+#    define LOGDRVREGC_PInfo(fmt, ...) PInfo("[KERNEL>>DrvReg.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDRVREGC_PInfo(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGDRVREGC_Logs
+#    define LOGDRVREGC_PSuccess(fmt, ...) PSuccess("[KERNEL>>DrvReg.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDRVREGC_PSuccess(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+const char* DriverTypes[] = {
+    "default", "input", "storage", "network", "graphics", "audio", "usb", "pci", "serial", NULL};
 
 int
 AddDriverToRegistry(DriverInfo* __Info__)
 {
     if (Probe_IF_Error(__Info__) || !__Info__ || !DriverManager.Initialized)
     {
-        return -BadArgs;
+        PushError("AddDriverToRegistry", LOGDRVREGC_PError, "bad arguments passed", -BadArguments);
+        return -BadArguments;
     }
 
     /*Check for existence*/
     DriverEntry* Existing = FindDriverByName(__Info__->Name);
-    if (!Probe_IF_Error(Existing))
+    if (Probe_IF_Error(Existing))
     {
+        if (Pointer_TO_Error(Existing) == -NoSuch)
+        {
+            LOGDRVREGC_PDebug("%s Driver does not exist", __Info__->Name);
+        }
+        else
+        {
+            PushError("AddDriverToRegistry",
+                      LOGDRVREGC_PError,
+                      "unexpected return to find",
+                      Pointer_TO_Error(Existing));
+            return -BadReturn;
+        }
+    }
+    else if (Existing)
+    {
+        PushError(
+            "AddDriverToRegistry", LOGDRVREGC_PError, "driver already registered", -Redefined);
         return -Redefined;
     }
 
@@ -23,7 +95,11 @@ AddDriverToRegistry(DriverInfo* __Info__)
     DriverEntry* NewDriver = (DriverEntry*)KMalloc(sizeof(DriverEntry));
     if (Probe_IF_Error(NewDriver) || !NewDriver)
     {
-        return -BadAlloc;
+        PushError("AddDriverToRegistry",
+                  LOGDRVREGC_PError,
+                  "cannot allocate new driver entry",
+                  Pointer_TO_Error(NewDriver));
+        return -BadAllocation;
     }
 
     for (size_t ByteIndex = 0; ByteIndex < sizeof(DriverEntry); ByteIndex++)
@@ -71,7 +147,7 @@ AddDriverToRegistry(DriverInfo* __Info__)
 
     ReleaseSpinLock(&DriverManager.ManagerLock, Error);
 
-    PDebug("Added driver to registry: %s\n", __Info__->Name);
+    LOGDRVREGC_PDebug("Added driver to registry: %s\n", __Info__->Name);
     return SysOkay;
 }
 
@@ -80,17 +156,26 @@ RemoveDriverFromRegistry(const char* __DriverName__)
 {
     if (Probe_IF_Error(__DriverName__) || !__DriverName__ || !DriverManager.Initialized)
     {
-        return -BadArgs;
+        PushError("RemoveDriverFromRegistry", LOGDRVREGC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     DriverEntry* Driver = FindDriverByName(__DriverName__);
-    if (Probe_IF_Error(Driver))
+    if (Probe_IF_Error(Driver) || !Driver)
     {
-        return Pointer_TO_Error(Driver);
+        PushError("RemoveDriverFromRegistry",
+                  LOGDRVREGC_PError,
+                  "driver not found",
+                  Pointer_TO_Error(Driver));
+        return -BadReturn;
     }
 
     if (Driver->RefCount > 0)
     {
+        PushError("RemoveDriverFromRegistry",
+                  LOGDRVREGC_PError,
+                  "cannot remove driver with active references",
+                  -Busy);
         return -Busy;
     }
 
@@ -148,7 +233,7 @@ RemoveDriverFromRegistry(const char* __DriverName__)
 
     KFree(Driver, Error);
 
-    PDebug("Removed driver from registry: %s\n", __DriverName__);
+    LOGDRVREGC_PDebug("Removed driver from registry: %s\n", __DriverName__);
     return SysOkay;
 }
 
@@ -157,7 +242,8 @@ FindDriversByType(DriverType __Type__, uint32_t* __Count__)
 {
     if (Probe_IF_Error(__Count__) || !__Count__)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("FindDriversByType", LOGDRVREGC_PError, "bad arguments", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     *__Count__ = 0;
@@ -173,6 +259,7 @@ FindDriversByType(DriverType __Type__, uint32_t* __Count__)
         }
     }
 
+    PushError("FindDriversByType", LOGDRVREGC_PError, "no such driver type", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }
 
@@ -181,13 +268,15 @@ GetAllDrivers(uint32_t* __Count__)
 {
     if (Probe_IF_Error(__Count__) || !__Count__)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("GetAllDrivers", LOGDRVREGC_PError, "bad arguments", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     *__Count__ = DriverManager.TotalDrivers;
 
     if (DriverManager.TotalDrivers == 0)
     {
+        PushError("GetAllDrivers", LOGDRVREGC_PError, "no drivers registered", -NoSuch);
         return Error_TO_Pointer(-NoSuch);
     }
 
@@ -197,7 +286,11 @@ GetAllDrivers(uint32_t* __Count__)
         (DriverEntry**)KMalloc(sizeof(DriverEntry*) * DriverManager.TotalDrivers);
     if (Probe_IF_Error(DriverArray) || !DriverArray)
     {
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("GetAllDrivers",
+                  LOGDRVREGC_PError,
+                  "cannot allocate driver array",
+                  Pointer_TO_Error(DriverArray));
+        return Error_TO_Pointer(-BadAllocation);
     }
 
     AcquireSpinLock(&DriverManager.ManagerLock, Error);
@@ -221,7 +314,8 @@ GetLoadedDrivers(uint32_t* __Count__)
 {
     if (Probe_IF_Error(__Count__) || !__Count__)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("GetLoadedDrivers", LOGDRVREGC_PError, "bad arguments", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     /*Count loaded drivers first*/
@@ -245,6 +339,7 @@ GetLoadedDrivers(uint32_t* __Count__)
     {
         ReleaseSpinLock(&DriverManager.ManagerLock, Error);
         *__Count__ = 0;
+        PushError("GetLoadedDrivers", LOGDRVREGC_PError, "no drivers loaded", -NoSuch);
         return Error_TO_Pointer(-NoSuch);
     }
 
@@ -252,7 +347,11 @@ GetLoadedDrivers(uint32_t* __Count__)
     if (Probe_IF_Error(LoadedArray) || !LoadedArray)
     {
         ReleaseSpinLock(&DriverManager.ManagerLock, Error);
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("GetLoadedDrivers",
+                  LOGDRVREGC_PError,
+                  "cannot allocate loaded driver array",
+                  Pointer_TO_Error(LoadedArray));
+        return Error_TO_Pointer(-BadAllocation);
     }
 
     uint32_t Index = 0;
@@ -276,34 +375,33 @@ GetLoadedDrivers(uint32_t* __Count__)
 int
 ScanDriverDirectory(void)
 {
-    const char* DriverTypes[] = {
-        "system", "input", "storage", "network", "graphics", "audio", "usb", "pci", "serial"};
 
-    PDebug("Driver directory scan from base: %s\n", DriverPathBase);
+    LOGDRVREGC_PDebug("Driver directory scan from base: %s\n", DriverPathBase);
 
-    for (uint32_t TypeIdx = 0; TypeIdx < 9; TypeIdx++)
+    for (uint32_t TypeIdx = 0; DriverTypes[TypeIdx] != NULL; TypeIdx++)
     {
         char DirPath[DriverPathMaxLen];
+
         strcpy(DirPath, DriverPathBase, sizeof(DirPath));
         strcpy(DirPath + strlen(DirPath), "/", sizeof(DirPath) - strlen(DirPath));
         strcpy(DirPath + strlen(DirPath), DriverTypes[TypeIdx], sizeof(DirPath) - strlen(DirPath));
 
         if (VfsExists(DirPath) != SysOkay)
         {
-            PWarn("Directory does not exist: %s\n", DirPath);
+            LOGDRVREGC_PWarn("Directory does not exist: %s\n", DirPath);
             continue;
         }
 
         if (VfsIsDir(DirPath) != SysOkay)
         {
-            PWarn("Path is not a directory: %s\n", DirPath);
+            LOGDRVREGC_PWarn("Path is not a directory: %s\n", DirPath);
             continue;
         }
 
         VfsDirEnt DirBuffer[32];
         long      EntryCount = VfsReaddir(DirPath, DirBuffer, sizeof(DirBuffer));
 
-        PInfo("Found %ld entries in %s\n", EntryCount, DirPath);
+        LOGDRVREGC_PInfo("Found %ld entries in %s\n", EntryCount, DirPath);
 
         if (EntryCount <= 0)
         {
@@ -312,48 +410,53 @@ ScanDriverDirectory(void)
 
         for (long EntryIdx = 0; EntryIdx < EntryCount; EntryIdx++)
         {
+            SysErr  err;
+            SysErr* Error = &err;
+
             VfsDirEnt* Entry = &DirBuffer[EntryIdx];
 
-            PDebug("Processing entry: %s (type=%d)\n", Entry->Name, Entry->Type);
+            LOGDRVREGC_PDebug("Processing entry: %s (type=%d)\n", Entry->Name, Entry->Type);
 
             if (Entry->Type != VNodeFILE)
             {
-                PWarn("non-file entry: %s\n", Entry->Name);
+                LOGDRVREGC_PWarn("non-file entry: %s\n", Entry->Name);
                 continue;
             }
 
             char* DotKo = strrchr(Entry->Name, '.');
-            if (Probe_IF_Error(DotKo) || !DotKo || strcmp(DotKo, ".ko") != 0)
+            if (!DotKo || strcmp(DotKo, ".ko") != 0)
             {
-                PWarn("non-.ko file: %s\n", Entry->Name);
+                LOGDRVREGC_PWarn("non-.ko file: %s\n", Entry->Name);
                 continue;
             }
 
+            AcquireSpinLock(&DriverManager.ManagerLock, Error);
             char FullPath[DriverPathMaxLen];
             strcpy(FullPath, DirPath, sizeof(FullPath));
             strcpy(FullPath + strlen(FullPath), "/", sizeof(FullPath) - strlen(FullPath));
             strcpy(FullPath + strlen(FullPath), Entry->Name, sizeof(FullPath) - strlen(FullPath));
-
             DriverInfo Info;
-            int        result = GetDriverModuleInfo(FullPath, &Info);
-            if (result == SysOkay)
+            int        DefRes = GetDriverModuleInfo(FullPath, &Info);
+            ReleaseSpinLock(&DriverManager.ManagerLock, Error);
+
+            if (DefRes == SysOkay)
             {
-                int addResult = AddDriverToRegistry(&Info);
-                if (addResult == SysOkay)
+                int AddRes = AddDriverToRegistry(&Info);
+                if (AddRes == SysOkay)
                 {
-                    PSuccess("Registered driver: %s from %s\n", Info.Name, FullPath);
+                    LOGDRVREGC_PSuccess("Registered driver: %s from %s\n", Info.Name, FullPath);
                 }
             }
         }
     }
 
-    PDebug("Registered drivers:\n");
-    DriverEntry* current = DriverManager.AllDrivers;
-    while (current)
+    LOGDRVREGC_PDebug("Registered drivers:\n");
+    DriverEntry* Current = DriverManager.AllDrivers;
+    while (Current)
     {
-        PDebug(
-            "  - %s (type=%d, state=%d)\n", current->Info.Name, current->Info.Type, current->State);
-        current = current->Next;
+        LOGDRVREGC_PDebug(
+            "  - %s (type=%d, state=%d)\n", Current->Info.Name, Current->Info.Type, Current->State);
+        Current = Current->Next;
     }
 
     return SysOkay;

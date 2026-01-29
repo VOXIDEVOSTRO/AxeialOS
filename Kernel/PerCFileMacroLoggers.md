@@ -1,0 +1,1 @@
+Every .c file in this directory have group of MACRO Loggers which handle PER .c file logging for better tracing, debugging and other stuff; way cleaner than before.

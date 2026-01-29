@@ -13,6 +13,12 @@ Step1: Clone this repository
 git clone https://github.com/VOXIDEVOSTRO/AxeialOS.git
 ```
 
+Note on Step1:
+if you want early acsess to some stuff use this
+```
+git clone -b pre-main https://github.com/VOXIDEVOSTRO/AxeialOS.git
+```
+
 Step2: Go into the repository
 ```
 cd AxeialOS
@@ -81,8 +87,6 @@ and rebuild.
 anyway thanks for actually trying it out.
 
 You are free to experiment on this operating system as much as you want
-
-DRIVER NOTE: All drivers/kernel modules(.ko) have been deprecated because of the kernel rewrite! Will be fixed after the driver overhaul.
 
 join my community! 
 https://discord.gg/dEPMKfktBt

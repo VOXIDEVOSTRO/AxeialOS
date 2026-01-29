@@ -36,14 +36,9 @@ FinalTemp := ../.Build
 LocalTemp := .Build
 
 ModuleName := TestDriver.ko
-DriverType := system
-DriverSubType := 
+DriverType := default
+InstallPath := $(FinalTemp)/sys/drvs/$(DriverType)
 
-ifeq ($(DriverSubType),)
-    InstallPath := $(FinalTemp)/sys/drvs/$(DriverType)
-else
-    InstallPath := $(FinalTemp)/sys/drvs/$(DriverType)/$(DriverSubType)
-endif
 
 Cs := $(wildcard *.c)
 Os := $(patsubst %.c,$(LocalTemp)/%.o,$(Cs))

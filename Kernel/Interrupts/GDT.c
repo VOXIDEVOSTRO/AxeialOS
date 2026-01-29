@@ -1,5 +1,51 @@
 #include <Errnos.h>
 #include <GDT.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGGDTC_Debug
+#    define LOGGDTC_PDebug(fmt, ...) PDebug("[KERNEL>>GDT.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGGDTC_PDebug(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGGDTC_Logs
+#    define LOGGDTC_PError(fmt, ...) PError("[KERNEL>>GDT.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGGDTC_PError(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGGDTC_Logs
+#    define LOGGDTC_PWarn(fmt, ...) PWarn("[KERNEL>>GDT.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGGDTC_PWarn(fmt, ...)                                                                \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGGDTC_Logs
+#    define LOGGDTC_PInfo(fmt, ...) PInfo("[KERNEL>>GDT.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGGDTC_PInfo(fmt, ...)                                                                \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGGDTC_Logs
+#    define LOGGDTC_PSuccess(fmt, ...) PSuccess("[KERNEL>>GDT.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGGDTC_PSuccess(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 GdtEntry GdtEntries[MaxGdt /*max*/];
 
@@ -36,12 +82,12 @@ SetGdtEntry(int      __Index__,
     GdtEntries[__Index__].Access = __Access__;
 
     /*Debug logging to verify GDT entry configuration*/
-    PDebug("GDT[%d]: Base=0x%x, Limit=0x%x, Access=0x%x, Gran=0x%x\n",
-           __Index__,
-           __Base__,
-           __Limit__,
-           (unsigned int)__Access__,
-           (unsigned int)__Granularity__);
+    LOGGDTC_PDebug("GDT[%d]: Base=0x%x, Limit=0x%x, Access=0x%x, Gran=0x%x\n",
+                   __Index__,
+                   __Base__,
+                   __Limit__,
+                   (unsigned int)__Access__,
+                   (unsigned int)__Granularity__);
 }
 
 void
@@ -103,7 +149,7 @@ InitializeGdt(SysErr* __Err__)
                      : "I"(GdtSegmentReloadValue), "I"(GdtKernelCodePush)
                      : "rax", "memory");
 
-    PSuccess("GDT init... OK\n");
+    LOGGDTC_PSuccess("GDT init... OK\n");
 
     /*Initialize TSS*/
     InitializeTss(__Err__);

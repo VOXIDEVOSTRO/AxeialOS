@@ -3,10 +3,8 @@
 #include <AllTypes.h>
 #include <Errnos.h>
 
-void  strcpy(char* __Dest__, const char* __Src__, uint32_t __MaxLen__); /*strcpy*/
-void* memcpy(void* __Dest__, const void* __Src__, size_t __Size__);
-/*memcpy ^^^^^^^^^^^^^*/ /* No idea why doesn't it work */
-
+void   strcpy(char* __Dest__, const char* __Src__, uint32_t __MaxLen__); /*strcpy*/
+void*  memcpy(void* __Dest__, const void* __Src__, size_t __Size__);     /*memcpy*/
 void*  memset(void* __Dest__, int __Value__, size_t __Index__);          /*memset*/
 int    strcmp(const char* __Str1__, const char* __Str2__);               /*strcmp*/
 int    strncmp(const char* __S1__, const char* __S2__, size_t __Size__); /*strncmp*/

@@ -1,5 +1,51 @@
 #include <Errnos.h>
 #include <IDT.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGIDTC_Debug
+#    define LOGIDTC_PDebug(fmt, ...) PDebug("[KERNEL>>IDT.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGIDTC_PDebug(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGIDTC_Logs
+#    define LOGIDTC_PError(fmt, ...) PError("[KERNEL>>IDT.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGIDTC_PError(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGIDTC_Logs
+#    define LOGIDTC_PWarn(fmt, ...) PWarn("[KERNEL>>IDT.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGIDTC_PWarn(fmt, ...)                                                                \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGIDTC_Logs
+#    define LOGIDTC_PInfo(fmt, ...) PInfo("[KERNEL>>IDT.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGIDTC_PInfo(fmt, ...)                                                                \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGIDTC_Logs
+#    define LOGIDTC_PSuccess(fmt, ...) PSuccess("[KERNEL>>IDT.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGIDTC_PSuccess(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 IdtEntry IdtEntries[256];
 
@@ -11,11 +57,11 @@ const char* ExceptionNames[32] = {"Division Error",
                                   "Breakpoint",
                                   "Overflow",
                                   "Bound Range Exceeded",
-                                  "Invalid Opcode",
+                                  "bad Opcode",
                                   "Device Not Available",
                                   "Double Fault",
                                   "Coprocessor Segment Overrun",
-                                  "Invalid TSS",
+                                  "bad TSS",
                                   "Segment Not Present",
                                   "Stack Fault",
                                   "General Protection Fault",
@@ -70,7 +116,7 @@ InitializePic(SysErr* __Err__)
     __asm__ volatile("outb %0, %1" : : "a"((uint8_t)PicMaskAll), "Nd"((uint16_t)PicMasterData));
     __asm__ volatile("outb %0, %1" : : "a"((uint8_t)PicMaskAll), "Nd"((uint16_t)PicSlaveData));
 
-    PDebug("PIC initialized (all IRQs masked)\n");
+    LOGIDTC_PDebug("PIC initialized (all IRQs masked)\n");
 }
 
 void
@@ -113,7 +159,7 @@ InitializeIdt(SysErr* __Err__)
                 break; // Bound Range Exceeded
             case 6:
                 HandlerAddr = (uint64_t)Isr6;
-                break; // Invalid Opcode
+                break; // bad Opcode
             case 7:
                 HandlerAddr = (uint64_t)Isr7;
                 break; // Device Not Available
@@ -125,7 +171,7 @@ InitializeIdt(SysErr* __Err__)
                 break; // Coprocessor Segment Overrun
             case 10:
                 HandlerAddr = (uint64_t)Isr10;
-                break; // Invalid TSS
+                break; // bad TSS
             case 11:
                 HandlerAddr = (uint64_t)Isr11;
                 break; // Segment Not Present
@@ -195,7 +241,7 @@ InitializeIdt(SysErr* __Err__)
     /*Enable CPU interrupts globally*/
     __asm__ volatile("sti");
 
-    PSuccess("IDT init... OK\n");
+    LOGIDTC_PSuccess("IDT init... OK\n");
 }
 
 void
@@ -246,15 +292,15 @@ DumpControlRegisters(SysErr* __Err__)
 #define ISR_STUB(num)                                                                              \
     void Isr##num(void)                                                                            \
     {                                                                                              \
-        __asm__ volatile("pushq $0\n\t"                                                            \
-                         "pushq $" #num "\n\t"                                                     \
+        __asm__ volatile("pushq $0\n\t"        /* dummy error code */                              \
+                         "pushq $" #num "\n\t" /* vector number */                                 \
                          "jmp IsrCommonStub\n\t");                                                 \
     }
 
 #define ISR_STUB_ERR(num)                                                                          \
     void Isr##num(void)                                                                            \
     {                                                                                              \
-        __asm__ volatile("pushq $" #num "\n\t"                                                     \
+        __asm__ volatile("pushq $" #num "\n\t" /* vector number */                                 \
                          "jmp IsrCommonStub\n\t");                                                 \
     }
 

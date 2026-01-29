@@ -27,17 +27,15 @@ typedef enum
 
 typedef enum
 {
+    DriverTypeDefault,
     DriverTypeInput,
     DriverTypeStorage,
     DriverTypeNetwork,
     DriverTypeGraphics,
     DriverTypeAudio,
-    DriverTypeUsb,
-    DriverTypePci,
-    DriverTypeSerial,
-    DriverTypeSystem,
-    DriverTypeCustom
-
+    DriverTypeUSB,
+    DriverTypePCI,
+    DriverTypeSerial
 } DriverType;
 
 typedef struct DriverInfo
@@ -97,11 +95,14 @@ typedef struct DriverManagerContext
 } DriverManagerContext;
 
 extern DriverManagerContext DriverManager;
+extern const char*          DriverTypes[];
 
 int  InitializeDriverManager(void);
 void ShutdownDriverManager(SysErr* __Err__);
 int  ScanDriverDirectory(void);
+/*
 int  RefreshDriverDatabase(void);
+*/
 
 int      RegisterDriverType(const char* __TypeName__, DriverType __Type__);
 int      UnregisterDriverType(DriverType __Type__);
@@ -115,14 +116,18 @@ DriverEntry*  FindDriverByName(const char* __DriverName__);
 DriverEntry*  FindDriverByPath(const char* __FilePath__);
 DriverEntry** FindDriversByType(DriverType __Type__, uint32_t* __Count__);
 
+/*
 int ParseDriverManifest(const char* __FilePath__, DriverInfo* __Info__);
+*/
 int ValidateDriverBinary(const char* __FilePath__);
 int LoadDriverModule(DriverEntry* __Driver__);
 int UnloadDriverModule(DriverEntry* __Driver__);
 
 int AddDriverToRegistry(DriverInfo* __Info__);
 int RemoveDriverFromRegistry(const char* __DriverName__);
+/*
 int UpdateDriverInfo(const char* __DriverName__, DriverInfo* __NewInfo__);
+*/
 
 uint32_t GetDriverRefCount(const char* __DriverName__);
 int      IncrementDriverRef(const char* __DriverName__);
@@ -130,6 +135,8 @@ int      DecrementDriverRef(const char* __DriverName__);
 
 DriverEntry** GetAllDrivers(uint32_t* __Count__);
 DriverEntry** GetLoadedDrivers(uint32_t* __Count__);
+
+/*
 DriverEntry** GetActiveDrivers(uint32_t* __Count__);
 
 void DumpDriverInfo(DriverEntry* __Driver__, SysErr* __Err__);
@@ -146,13 +153,56 @@ int  ParseDriverPath(const char* __Path__,
                      char*       __SubType__,
                      uint32_t    __SubTypeLen__);
 bool IsValidDriverPath(const char* __Path__);
+*/
 
+/* driver manager core */
 KEXPORT(InitializeDriverManager);
+KEXPORT(ShutdownDriverManager);
+KEXPORT(ScanDriverDirectory);
+// KEXPORT(RefreshDriverDatabase);
+
+/* driver type registry */
+KEXPORT(RegisterDriverType);
+KEXPORT(UnregisterDriverType);
+KEXPORT(GetDriverTypeCount);
+
+/* driver module operations */
+KEXPORT(GetDriverModuleInfo);
 KEXPORT(LoadDriver);
 KEXPORT(UnloadDriver);
+KEXPORT(ReloadDriver);
 KEXPORT(FindDriverByName);
+KEXPORT(FindDriverByPath);
 KEXPORT(FindDriversByType);
-KEXPORT(GetAllDrivers);
-KEXPORT(GetLoadedDrivers);
+
+/* manifest & binary validation */
+// KEXPORT(ParseDriverManifest);
+KEXPORT(ValidateDriverBinary);
+KEXPORT(LoadDriverModule);
+KEXPORT(UnloadDriverModule);
+
+/* registry management */
+KEXPORT(AddDriverToRegistry);
+KEXPORT(RemoveDriverFromRegistry);
+// KEXPORT(UpdateDriverInfo);
+
+/* reference counting */
+KEXPORT(GetDriverRefCount);
 KEXPORT(IncrementDriverRef);
 KEXPORT(DecrementDriverRef);
+
+/* driver queries */
+KEXPORT(GetAllDrivers);
+KEXPORT(GetLoadedDrivers);
+// KEXPORT(GetActiveDrivers);
+
+/* dumpers */
+// KEXPORT(DumpDriverInfo);
+// KEXPORT(DumpAllDrivers);
+// KEXPORT(DumpDriversByType);
+// KEXPORT(DumpDriverStatistics);
+
+/* path helpers */
+// KEXPORT(CreateDriverPath);
+// KEXPORT(ParseDriverPath);
+// KEXPORT(IsValidDriverPath);

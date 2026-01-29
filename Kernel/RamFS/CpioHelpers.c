@@ -1,4 +1,51 @@
 #include <AllTypes.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGCPIOHELPERSC_Debug
+#    define LOGCPIOHELPERSC_PDebug(fmt, ...) PDebug("[KERNEL>>CpioHelpers.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGCPIOHELPERSC_PDebug(fmt, ...)                                                       \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGCPIOHELPERSC_Logs
+#    define LOGCPIOHELPERSC_PError(fmt, ...) PError("[KERNEL>>CpioHelpers.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGCPIOHELPERSC_PError(fmt, ...)                                                       \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGCPIOHELPERSC_Logs
+#    define LOGCPIOHELPERSC_PWarn(fmt, ...) PWarn("[KERNEL>>CpioHelpers.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGCPIOHELPERSC_PWarn(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGCPIOHELPERSC_Logs
+#    define LOGCPIOHELPERSC_PInfo(fmt, ...) PInfo("[KERNEL>>CpioHelpers.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGCPIOHELPERSC_PInfo(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGCPIOHELPERSC_Logs
+#    define LOGCPIOHELPERSC_PSuccess(fmt, ...)                                                     \
+        PSuccess("[KERNEL>>CpioHelpers.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGCPIOHELPERSC_PSuccess(fmt, ...)                                                     \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 uint32_t
 CpioAlignUp(uint32_t __Value__, uint32_t __Align__)

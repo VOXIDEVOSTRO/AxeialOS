@@ -1,5 +1,51 @@
 #include <KHeap.h>
 #include <RamFs.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGRAMFSC_Debug
+#    define LOGRAMFSC_PDebug(fmt, ...) PDebug("[KERNEL>>RamFs.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGRAMFSC_PDebug(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGRAMFSC_Logs
+#    define LOGRAMFSC_PError(fmt, ...) PError("[KERNEL>>RamFs.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGRAMFSC_PError(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGRAMFSC_Logs
+#    define LOGRAMFSC_PWarn(fmt, ...) PWarn("[KERNEL>>RamFs.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGRAMFSC_PWarn(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGRAMFSC_Logs
+#    define LOGRAMFSC_PInfo(fmt, ...) PInfo("[KERNEL>>RamFs.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGRAMFSC_PInfo(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGRAMFSC_Logs
+#    define LOGRAMFSC_PSuccess(fmt, ...) PSuccess("[KERNEL>>RamFs.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGRAMFSC_PSuccess(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 RamFSContext RamFS = {
     .Root  = 0,         /**< Root directory node */
@@ -18,11 +64,14 @@ RamFSAttachPath(RamFSNode*     __Root__,
 
     if (Probe_IF_Error(__Root__) || !__Root__ || Probe_IF_Error(__FullPath__) || !__FullPath__)
     {
-        return Error_TO_Pointer(-NotCanonical);
+        PushError(
+            "RamFSAttachPath", LOGRAMFSC_PError, "Bad args to RamFSAttachPath", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     if (__FullPath__[0] != '/')
     {
+        PushError("RamFSAttachPath", LOGRAMFSC_PError, "Path not rooted", -NotRooted);
         return Error_TO_Pointer(-NotRooted);
     }
 
@@ -71,7 +120,11 @@ RamFSAttachPath(RamFSNode*     __Root__,
                 char* Name = (char*)KMalloc(SegLen + 1);
                 if (Probe_IF_Error(Name) || !Name)
                 {
-                    return Error_TO_Pointer(-BadAlloc);
+                    PushError("RamFSAttachPath",
+                              LOGRAMFSC_PError,
+                              "Failed to allocate memory for RamFS node name",
+                              Pointer_TO_Error(Name));
+                    return Error_TO_Pointer(-BadAllocation);
                 }
 
                 for (uint32_t I = 0; I < SegLen; I++)
@@ -83,7 +136,11 @@ RamFSAttachPath(RamFSNode*     __Root__,
                 Next = RamFSCreateNode(Name, RamFSNode_Directory);
                 if (Probe_IF_Error(Next) || !Next)
                 {
-                    return Error_TO_Pointer(-BadAlloc);
+                    PushError("RamFSAttachPath",
+                              LOGRAMFSC_PError,
+                              "Failed to create RamFS node",
+                              Pointer_TO_Error(Next));
+                    return Error_TO_Pointer(-BadAllocation);
                 }
 
                 RamFSAddChild(Cur, Next, Error);
@@ -130,7 +187,11 @@ RamFSAttachPath(RamFSNode*     __Root__,
         char* Name = (char*)KMalloc(LeafLen + 1);
         if (Probe_IF_Error(Name) || !Name)
         {
-            return Error_TO_Pointer(-BadAlloc);
+            PushError("RamFSAttachPath",
+                      LOGRAMFSC_PError,
+                      "Failed to allocate memory for RamFS leaf name",
+                      Pointer_TO_Error(Name));
+            return Error_TO_Pointer(-BadAllocation);
         }
 
         for (uint32_t I = 0; I < LeafLen; I++)
@@ -142,7 +203,11 @@ RamFSAttachPath(RamFSNode*     __Root__,
         Leaf = RamFSCreateNode(Name, __Type__);
         if (Probe_IF_Error(Leaf) || !Leaf)
         {
-            return Error_TO_Pointer(-BadAlloc);
+            PushError("RamFSAttachPath",
+                      LOGRAMFSC_PError,
+                      "Failed to create RamFS leaf node",
+                      Pointer_TO_Error(Leaf));
+            return Error_TO_Pointer(-BadAllocation);
         }
 
         RamFSAddChild(Cur, Leaf, Error);
@@ -163,7 +228,8 @@ RamFSMount(const void* __Image__, size_t __Length__)
     RamFSNode* Root = RamFSEnsureRoot();
     if (Probe_IF_Error(Root) || !Root || Probe_IF_Error(__Image__) || !__Image__ || __Length__ == 0)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("RamFSMount", LOGRAMFSC_PError, "Bad args to RamFSMount", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     const uint8_t* Buf = (const uint8_t*)__Image__;
@@ -183,7 +249,7 @@ RamFSMount(const void* __Image__, size_t __Length__)
         if (!(Magic[0] == '0' && Magic[1] == '7' && Magic[2] == '0' && Magic[3] == '7' &&
               Magic[4] == '0' && Magic[5] == '1'))
         {
-            break; /*Invalid magic*/
+            break; /*bad magic*/
         }
 
         /*Header field pointers*/
@@ -266,6 +332,10 @@ RamFSMount(const void* __Image__, size_t __Length__)
         char* FullPath = (char*)KMalloc(RawLen + 2);
         if (Probe_IF_Error(FullPath) || !FullPath)
         {
+            PushError("RamFSMount",
+                      LOGRAMFSC_PError,
+                      "Failed to allocate memory for RamFS full path",
+                      Pointer_TO_Error(FullPath));
             return Error_TO_Pointer(-NotCanonical);
         }
 
@@ -289,7 +359,8 @@ RamFSLookup(RamFSNode* __Root__, const char* __Path__)
     if (Probe_IF_Error(__Root__) || !__Root__ || Probe_IF_Error(__Path__) || !__Path__ ||
         __Path__[0] != '/')
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("RamFSLookup", LOGRAMFSC_PError, "Bad args to RamFSLookup", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     const char* PathSegment = __Path__;
@@ -331,8 +402,11 @@ RamFSLookup(RamFSNode* __Root__, const char* __Path__)
 
             if (Probe_IF_Error(Next) || !Next)
             {
+                PushError("RamFSLookup",
+                          LOGRAMFSC_PError,
+                          "No such path segment",
+                          Pointer_TO_Error(Next));
                 return Error_TO_Pointer(-Dangling);
-                ;
             }
 
             Cur = Next;
@@ -367,5 +441,6 @@ RamFSLookup(RamFSNode* __Root__, const char* __Path__)
         }
     }
 
+    PushError("RamFSLookup", LOGRAMFSC_PError, "No such file or directory", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }

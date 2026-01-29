@@ -1,5 +1,51 @@
 #include <AllTypes.h>
 #include <KrnFont.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGKRNFONTMAPC_Debug
+#    define LOGKRNFONTMAPC_PDebug(fmt, ...) PDebug("[KERNEL>>KrnFontMap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKRNFONTMAPC_PDebug(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGKRNFONTMAPC_Logs
+#    define LOGKRNFONTMAPC_PError(fmt, ...) PError("[KERNEL>>KrnFontMap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKRNFONTMAPC_PError(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGKRNFONTMAPC_Logs
+#    define LOGKRNFONTMAPC_PWarn(fmt, ...) PWarn("[KERNEL>>KrnFontMap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKRNFONTMAPC_PWarn(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGKRNFONTMAPC_Logs
+#    define LOGKRNFONTMAPC_PInfo(fmt, ...) PInfo("[KERNEL>>KrnFontMap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKRNFONTMAPC_PInfo(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGKRNFONTMAPC_Logs
+#    define LOGKRNFONTMAPC_PSuccess(fmt, ...) PSuccess("[KERNEL>>KrnFontMap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKRNFONTMAPC_PSuccess(fmt, ...)                                                      \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 const uint8_t KrnlFontMap[MaxFontEntries][MaxFontMap] = {
     [0x00] = {0x00,

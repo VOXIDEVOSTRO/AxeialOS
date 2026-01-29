@@ -21,13 +21,59 @@
 #include <POSIXSignals.h>
 #include <SMP.h>
 #include <Serial.h>
+#include <String.h>
 #include <SymAP.h>
 #include <Sync.h>
 #include <Syscall.h>
 #include <Timer.h>
 #include <VFS.h>
 #include <VMM.h>
-#include <VirtBin.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGSYSTBLC_Debug
+#    define LOGSYSTBLC_PDebug(fmt, ...) PDebug("[KERNEL>>SysTbl.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSYSTBLC_PDebug(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSYSTBLC_Logs
+#    define LOGSYSTBLC_PError(fmt, ...) PError("[KERNEL>>SysTbl.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSYSTBLC_PError(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSYSTBLC_Logs
+#    define LOGSYSTBLC_PWarn(fmt, ...) PWarn("[KERNEL>>SysTbl.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSYSTBLC_PWarn(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSYSTBLC_Logs
+#    define LOGSYSTBLC_PInfo(fmt, ...) PInfo("[KERNEL>>SysTbl.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSYSTBLC_PInfo(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSYSTBLC_Logs
+#    define LOGSYSTBLC_PSuccess(fmt, ...) PSuccess("[KERNEL>>SysTbl.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSYSTBLC_PSuccess(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 #define __attribute_unused__ __attribute__((unused))
 
@@ -36,7 +82,7 @@ __GetCurrentProc__(void)
 {
     uint32_t CpuId = GetCurrentCpuId();
     Thread*  Thrd  = GetCurrentThread(CpuId);
-    return Thrd ? PosixFind((long)Thrd->ProcessId) : NULL;
+    return Thrd ? PosixFind((long)Thrd->ProcessId) : Error_TO_Pointer(-NoSuch);
 }
 
 int64_t
@@ -50,6 +96,10 @@ __Handle__Read(uint64_t __Fd__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Fds)
     {
+        PushError("__Handle__Read",
+                  LOGSYSTBLC_PError,
+                  "bad process or file descriptor table",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     return PosixRead(Proc->Fds, (int)__Fd__, (void*)__Buf__, (long)__Len__);
@@ -66,6 +116,10 @@ __Handle__Write(uint64_t __Fd__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Fds)
     {
+        PushError("__Handle__Write",
+                  LOGSYSTBLC_PError,
+                  "bad process or file descriptor table",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     return PosixWrite(Proc->Fds, (int)__Fd__, (const void*)__Buf__, (long)__Len__);
@@ -82,6 +136,10 @@ __Handle__Writev(uint64_t __Fd__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Fds || !__IovPtr__ || __IovCnt__ <= 0)
     {
+        PushError("__Handle__Writev",
+                  LOGSYSTBLC_PError,
+                  "bad process, file descriptor table, or iovec parameters",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
 
@@ -122,6 +180,10 @@ __Handle__Readv(uint64_t __Fd__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Fds || !__IovPtr__ || __IovCnt__ <= 0)
     {
+        PushError("__Handle__Readv",
+                  LOGSYSTBLC_PError,
+                  "bad process, file descriptor table, or iovec parameters",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
 
@@ -162,6 +224,10 @@ __Handle__Open(uint64_t __Path__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Fds)
     {
+        PushError("__Handle__Open",
+                  LOGSYSTBLC_PError,
+                  "bad process or file descriptor table",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     return PosixOpen(Proc->Fds, (const char*)__Path__, (long)__Flags__, (long)__Mode__);
@@ -178,6 +244,10 @@ __Handle__Close(uint64_t __Fd__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Fds)
     {
+        PushError("__Handle__Close",
+                  LOGSYSTBLC_PError,
+                  "bad process or file descriptor table",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     return PosixClose(Proc->Fds, (int)__Fd__);
@@ -205,6 +275,10 @@ __Handle__Fstat(uint64_t __Fd__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Fds)
     {
+        PushError("__Handle__Fstat",
+                  LOGSYSTBLC_PError,
+                  "bad process or file descriptor table",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     return PosixFstat(Proc->Fds, (int)__Fd__, (VfsStat*)__OutStat__);
@@ -221,6 +295,10 @@ __Handle__Lseek(uint64_t __Fd__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Fds)
     {
+        PushError("__Handle__Lseek",
+                  LOGSYSTBLC_PError,
+                  "bad process or file descriptor table",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     return PosixLseek(Proc->Fds, (int)__Fd__, (long)__Off__, (int)__Whence__);
@@ -237,6 +315,10 @@ __Handle__Ioctl(uint64_t __Fd__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Fds)
     {
+        PushError("__Handle__Ioctl",
+                  LOGSYSTBLC_PError,
+                  "bad process or file descriptor table",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     return PosixIoctl(Proc->Fds, (int)__Fd__, (unsigned long)__Cmd__, (void*)__Arg__);
@@ -271,6 +353,10 @@ __Handle__Pipe(uint64_t __PipefdPtr__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Fds || !__PipefdPtr__)
     {
+        PushError("__Handle__Pipe",
+                  LOGSYSTBLC_PError,
+                  "bad process, file descriptor table, or pipefd pointer",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     int fds[2] = {-BadSystemcall, -BadSystemcall};
@@ -294,6 +380,10 @@ __Handle__Dup(uint64_t __Fd__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Fds)
     {
+        PushError("__Handle__Dup",
+                  LOGSYSTBLC_PError,
+                  "bad process or file descriptor table",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     return PosixDup(Proc->Fds, (int)__Fd__);
@@ -310,6 +400,10 @@ __Handle__Dup2(uint64_t __OldFd__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Fds)
     {
+        PushError("__Handle__Dup2",
+                  LOGSYSTBLC_PError,
+                  "bad process or file descriptor table",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     return PosixDup2(Proc->Fds, (int)__OldFd__, (int)__NewFd__);
@@ -384,6 +478,10 @@ __Handle__Nanosleep(uint64_t __ReqPtr__,
     __attribute_unused__ uint64_t __unused_rem__ = __RemPtr__;
     if (Probe_IF_Error(__ReqPtr__) || !__ReqPtr__)
     {
+        PushError("__Handle__Nanosleep",
+                  LOGSYSTBLC_PError,
+                  "bad request pointer for nanosleep",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     struct
@@ -446,6 +544,8 @@ __Handle__Fork(uint64_t __U1__,
     PosixProc* Parent = __GetCurrentProc__();
     if (Probe_IF_Error(Parent) || !Parent)
     {
+        PushError(
+            "__Handle__Fork", LOGSYSTBLC_PError, "bad parent process for fork", -BadSystemcall);
         return -BadSystemcall;
     }
     PosixProc* Child = NULL;
@@ -464,6 +564,7 @@ __Handle__Execve(uint64_t __Path__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc)
     {
+        PushError("__Handle__Execve", LOGSYSTBLC_PError, "bad process for execve", -BadSystemcall);
         return -BadSystemcall;
     }
     return PosixProcExecve(
@@ -481,6 +582,7 @@ __Handle__Exit(uint64_t __Status__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc)
     {
+        PushError("__Handle__Exit", LOGSYSTBLC_PError, "bad process for exit", -BadSystemcall);
         return -BadSystemcall;
     }
     PosixExit(Proc, (int)__Status__);
@@ -498,6 +600,8 @@ __Handle__Wait4(uint64_t __Pid__,
     PosixProc* Parent = __GetCurrentProc__();
     if (Probe_IF_Error(Parent) || !Parent)
     {
+        PushError(
+            "__Handle__Wait4", LOGSYSTBLC_PError, "bad parent process for wait4", -BadSystemcall);
         return -BadSystemcall;
     }
     int         status = 0;
@@ -543,6 +647,10 @@ __Handle__Getcwd(uint64_t __Buf__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !__Buf__ || __Len__ == 0)
     {
+        PushError("__Handle__Getcwd",
+                  LOGSYSTBLC_PError,
+                  "bad process, buffer, or length for getcwd",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     strcpy((char*)__Buf__, Proc->Cwd, (uint32_t)__Len__);
@@ -560,6 +668,7 @@ __Handle__Chdir(uint64_t __Path__,
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc)
     {
+        PushError("__Handle__Chdir", LOGSYSTBLC_PError, "bad process for chdir", -BadSystemcall);
         return -BadSystemcall;
     }
     return PosixChdir(Proc, (const char*)__Path__);
@@ -575,6 +684,7 @@ __Handle__Uname(uint64_t __Buf__,
 {
     if (Probe_IF_Error(__Buf__) || !__Buf__)
     {
+        PushError("__Handle__Uname", LOGSYSTBLC_PError, "bad buffer for uname", -BadSystemcall);
         return -BadSystemcall;
     }
     /* sysname,nodename,release,version,machine */
@@ -602,6 +712,10 @@ __Handle__Gettimeofday(uint64_t __Tv__,
     __attribute_unused__ uint64_t __unused_tz__ = __Tz__;
     if (Probe_IF_Error(__Tv__) || !__Tv__)
     {
+        PushError("__Handle__Gettimeofday",
+                  LOGSYSTBLC_PError,
+                  "bad timeval pointer for gettimeofday",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     struct
@@ -625,11 +739,14 @@ __Handle__Times(uint64_t __TmsPtr__,
 {
     if (Probe_IF_Error(__TmsPtr__) || !__TmsPtr__)
     {
+        PushError(
+            "__Handle__Times", LOGSYSTBLC_PError, "bad tms pointer for times", -BadSystemcall);
         return -BadSystemcall;
     }
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc)
     {
+        PushError("__Handle__Times", LOGSYSTBLC_PError, "bad process for times", -BadSystemcall);
         return -BadSystemcall;
     }
     struct
@@ -656,6 +773,10 @@ __Handle__ClockGettime(uint64_t __ClkId__,
 {
     if (Probe_IF_Error(__Tp__) || !__Tp__)
     {
+        PushError("__Handle__ClockGettime",
+                  LOGSYSTBLC_PError,
+                  "bad timespec pointer for clock_gettime",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
     struct
@@ -711,16 +832,20 @@ __BrkLookup__(long __Pid__)
 }
 
 int64_t
-__Handle__Mmap(uint64_t __Addr__,
-               uint64_t __Len__,
-               uint64_t __Prot__,
-               uint64_t __Flags__,
-               uint64_t __Fd__,
-               uint64_t __Off__)
+__Handle__Mmap(uint64_t         __Addr__,
+               uint64_t         __Len__,
+               uint64_t         __Prot__,
+               uint64_t         __Flags__,
+               uint64_t __Fd__  _unused,
+               uint64_t __Off__ _unused)
 {
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Space || __Len__ == 0)
     {
+        PushError("__Handle__Mmap",
+                  LOGSYSTBLC_PError,
+                  "bad process, address space, or length for mmap",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
 
@@ -739,14 +864,11 @@ __Handle__Mmap(uint64_t __Addr__,
         PteFlags |= PTENOEXECUTE;
     }
 
-    (void)__Fd__;
-    (void)__Off__;
-    int RIdx = VirtMapRangeZeroed(Proc->Space, VaBase, MapLen, PteFlags);
+    int RIdx = MapRangeZeroed(Proc->Space, VaBase, MapLen, PteFlags);
     if (RIdx != 0)
     {
-        PError("mmap: VirtMapRangeZeroed failed base=0x%llx len=0x%llx\n",
-               (unsigned long long)VaBase,
-               (unsigned long long)MapLen);
+        PushError(
+            "__Handle__Mmap", LOGSYSTBLC_PError, "MapRangeZeroed failed in mmap", -BadSystemcall);
         return -BadSystemcall;
     }
 
@@ -761,14 +883,13 @@ __Handle__Munmap(uint64_t __Addr__,
                  uint64_t __U5__,
                  uint64_t __U6__)
 {
-    (void)__U3__;
-    (void)__U4__;
-    (void)__U5__;
-    (void)__U6__;
-
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Space || __Addr__ == 0 || __Len__ == 0)
     {
+        PushError("__Handle__Munmap",
+                  LOGSYSTBLC_PError,
+                  "bad process, address space, address, or length for munmap",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
 
@@ -793,21 +914,23 @@ __Handle__Brk(uint64_t __NewBrk__,
               uint64_t __U5__,
               uint64_t __U6__)
 {
-    (void)__U2__;
-    (void)__U3__;
-    (void)__U4__;
-    (void)__U5__;
-    (void)__U6__;
-
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Space)
     {
+        PushError("__Handle__Brk",
+                  LOGSYSTBLC_PError,
+                  "bad process or address space for brk",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
 
     ProcBrkRec* Br = __BrkLookup__(Proc->Pid);
     if (Probe_IF_Error(Br) || !Br)
     {
+        PushError("__Handle__Brk",
+                  LOGSYSTBLC_PError,
+                  "failed to lookup brk record for process",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
 
@@ -831,9 +954,11 @@ __Handle__Brk(uint64_t __NewBrk__,
     {
         uint64_t GrowLen  = Want - Br->BrkCur;
         uint64_t PteFlags = PTEPRESENT | PTEUSER | PTEWRITABLE | PTENOEXECUTE;
-        int      RIdx     = VirtMapRangeZeroed(Proc->Space, Br->BrkCur, GrowLen, PteFlags);
+        int      RIdx     = MapRangeZeroed(Proc->Space, Br->BrkCur, GrowLen, PteFlags);
         if (RIdx != 0)
         {
+            PushError(
+                "__Handle__Brk", LOGSYSTBLC_PError, "MapRangeZeroed failed in brk", -BadSystemcall);
             return -BadSystemcall;
         }
         Br->BrkCur = Want;
@@ -870,20 +995,32 @@ __FdIsReadable__(PosixFdTable* __Tab__, int __Fd__)
 {
     if (Probe_IF_Error(__Tab__) || !__Tab__)
     {
-        return SysOkay;
+        PushError("__FdIsReadable__",
+                  LOGSYSTBLC_PError,
+                  "bad file descriptor table in __FdIsReadable__",
+                  -BadSystemcall);
+        return false;
     }
     if (__Fd__ < 0 || (long)__Fd__ >= __Tab__->Cap)
     {
-        return SysOkay;
+        PushError("__FdIsReadable__",
+                  LOGSYSTBLC_PError,
+                  "file descriptor out of range in __FdIsReadable__",
+                  -BadSystemcall);
+        return false;
     }
     PosixFd* E = &__Tab__->Entries[__Fd__];
     if (E->Fd < 0)
     {
-        return SysOkay;
+        PushError("__FdIsReadable__",
+                  LOGSYSTBLC_PError,
+                  "file descriptor not open in __FdIsReadable__",
+                  -BadSystemcall);
+        return false;
     }
     if (E->IsFile)
     {
-        return 1;
+        return true;
     }
     if (E->IsChar && E->Obj)
     {
@@ -895,7 +1032,11 @@ __FdIsReadable__(PosixFdTable* __Tab__, int __Fd__)
         ReleaseSpinLock(&P->Lock, Error);
         return Ok;
     }
-    return SysOkay;
+    PushError("__FdIsReadable__",
+              LOGSYSTBLC_PError,
+              "file descriptor not readable in __FdIsReadable__",
+              -BadSystemcall);
+    return false;
 }
 
 static int
@@ -903,20 +1044,32 @@ __FdIsWritable__(PosixFdTable* __Tab__, int __Fd__)
 {
     if (Probe_IF_Error(__Tab__) || !__Tab__)
     {
-        return SysOkay;
+        PushError("__FdIsWritable__",
+                  LOGSYSTBLC_PError,
+                  "bad file descriptor table in __FdIsWritable__",
+                  -BadSystemcall);
+        return false;
     }
     if (__Fd__ < 0 || (long)__Fd__ >= __Tab__->Cap)
     {
-        return SysOkay;
+        PushError("__FdIsWritable__",
+                  LOGSYSTBLC_PError,
+                  "file descriptor out of range in __FdIsWritable__",
+                  -BadSystemcall);
+        return false;
     }
     PosixFd* E = &__Tab__->Entries[__Fd__];
     if (E->Fd < 0)
     {
-        return SysOkay;
+        PushError("__FdIsWritable__",
+                  LOGSYSTBLC_PError,
+                  "file descriptor not open in __FdIsWritable__",
+                  -BadSystemcall);
+        return false;
     }
     if (E->IsFile)
     {
-        return 1;
+        return true;
     }
     if (E->IsChar && E->Obj)
     {
@@ -928,7 +1081,11 @@ __FdIsWritable__(PosixFdTable* __Tab__, int __Fd__)
         ReleaseSpinLock(&P->Lock, Error);
         return Ok;
     }
-    return SysOkay;
+    PushError("__FdIsWritable__",
+              LOGSYSTBLC_PError,
+              "file descriptor not writable in __FdIsWritable__",
+              -BadSystemcall);
+    return false;
 }
 
 static int
@@ -936,10 +1093,10 @@ __FdsetTest__(const void* __Set__, int __Fd__)
 {
     if (Probe_IF_Error(__Set__) || !__Set__ || __Fd__ < 0)
     {
-        return SysOkay;
+        return false;
     }
     const unsigned char* S = (const unsigned char*)__Set__;
-    return (S[__Fd__ / 8] & (1u << (__Fd__ % 8))) ? 1 : 0;
+    return (S[__Fd__ / 8] & (1u << (__Fd__ % 8))) ? true : false;
 }
 
 static void
@@ -947,6 +1104,10 @@ __FdsetClear__(void* __Set__, int __Fd__)
 {
     if (Probe_IF_Error(__Set__) || !__Set__ || __Fd__ < 0)
     {
+        PushError("__FdsetClear__",
+                  LOGSYSTBLC_PError,
+                  "bad fd set or fd in __FdsetClear__",
+                  -BadSystemcall);
         return;
     }
     unsigned char* S = (unsigned char*)__Set__;
@@ -958,6 +1119,8 @@ __FdsetSet__(void* __Set__, int __Fd__)
 {
     if (Probe_IF_Error(__Set__) || !__Set__ || __Fd__ < 0)
     {
+        PushError(
+            "__FdsetSet__", LOGSYSTBLC_PError, "bad fd set or fd in __FdsetSet__", -BadSystemcall);
         return;
     }
     unsigned char* S = (unsigned char*)__Set__;
@@ -972,11 +1135,13 @@ __Handle__Select(uint64_t __Nfds__,
                  uint64_t __Timeout__,
                  uint64_t __U6__)
 {
-    (void)__U6__;
-
     PosixProc* Proc = __GetCurrentProc__();
     if (Probe_IF_Error(Proc) || !Proc || !Proc->Fds)
     {
+        PushError("__Handle__Select",
+                  LOGSYSTBLC_PError,
+                  "bad process or file descriptor table for select",
+                  -BadSystemcall);
         return -BadSystemcall;
     }
 

@@ -1,5 +1,51 @@
 #include <Errnos.h>
 #include <KHeap.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGKHEAPC_Debug
+#    define LOGKHEAPC_PDebug(fmt, ...) PDebug("[KERNEL>>KHeap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKHEAPC_PDebug(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGKHEAPC_Logs
+#    define LOGKHEAPC_PError(fmt, ...) PError("[KERNEL>>KHeap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKHEAPC_PError(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGKHEAPC_Logs
+#    define LOGKHEAPC_PWarn(fmt, ...) PWarn("[KERNEL>>KHeap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKHEAPC_PWarn(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGKHEAPC_Logs
+#    define LOGKHEAPC_PInfo(fmt, ...) PInfo("[KERNEL>>KHeap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKHEAPC_PInfo(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGKHEAPC_Logs
+#    define LOGKHEAPC_PSuccess(fmt, ...) PSuccess("[KERNEL>>KHeap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKHEAPC_PSuccess(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 KernelHeapManager KHeap;
 SpinLock          KHeapLock;
@@ -32,7 +78,7 @@ InitializeKHeap(SysErr* __Err__ _unused)
         }
     }
 
-    PSuccess("KHeap initialized with %u slab caches\n", KHeap.CacheCount);
+    LOGKHEAPC_PSuccess("KHeap initialized with %u slab caches\n", KHeap.CacheCount);
 }
 
 void*
@@ -40,7 +86,8 @@ KMalloc(size_t __Size__)
 {
     if (__Size__ == 0)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("KMalloc", LOGKHEAPC_PError, "bad arguments in KMalloc", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     /*Large allocations bypass slab and go directly to PMM*/
@@ -51,7 +98,8 @@ KMalloc(size_t __Size__)
         uint64_t PhysAddr = AllocPages(Pages);
         if (!PhysAddr)
         {
-            return Error_TO_Pointer(-TooMany); /*Out of memory*/
+            PushError("KMalloc", LOGKHEAPC_PError, "out of memory in KMalloc", -Depleted);
+            return Error_TO_Pointer(-Depleted); /*Out of memory*/
         }
         return PhysToVirt(PhysAddr);
     }
@@ -59,6 +107,10 @@ KMalloc(size_t __Size__)
     SlabCache* Cache = GetSlabCache(__Size__);
     if (!Cache)
     {
+        PushError("KMalloc",
+                  LOGKHEAPC_PError,
+                  "cannot fine a suitable cache in KMalloc",
+                  Pointer_TO_Error(Cache));
         return Error_TO_Pointer(-NoSuch); /*No suitable cache found*/
     }
 
@@ -81,7 +133,11 @@ KMalloc(size_t __Size__)
         CurrentSlab = AllocateSlab(Cache->ObjectSize);
         if (!CurrentSlab)
         {
-            return Error_TO_Pointer(-BadAlloc); /*Failed to allocate new slab*/
+            PushError("KMalloc",
+                      LOGKHEAPC_PError,
+                      "bad allocation for slab in KMalloc",
+                      Pointer_TO_Error(CurrentSlab));
+            return Error_TO_Pointer(-BadAllocation); /*Failed to allocate new slab*/
         }
 
         CurrentSlab->Next = Cache->Slabs;
@@ -91,6 +147,10 @@ KMalloc(size_t __Size__)
     SlabObject* Object = CurrentSlab->FreeList;
     if (!Object)
     {
+        PushError("KMalloc",
+                  LOGKHEAPC_PError,
+                  "bad object in current slab free list in KMalloc",
+                  -NotCanonical);
         return Error_TO_Pointer(-NotCanonical); /*Should not happen if FreeCount > 0*/
     }
 
@@ -111,7 +171,8 @@ KFree(void* __Ptr__, SysErr* __Err__)
 {
     if (!__Ptr__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("KFree", LOGKHEAPC_PError, "bad arguments in KFree", -BadArguments);
         return;
     }
 
@@ -126,6 +187,7 @@ KFree(void* __Ptr__, SysErr* __Err__)
         uint64_t PhysAddr = VirtToPhys(__Ptr__);
         FreePage(PhysAddr, __Err__);
         SlotError(__Err__, -NotCanonical);
+        PushError("KFree", LOGKHEAPC_PError, "bad magic in slab in KFree", -NotCanonical);
         return;
     }
 

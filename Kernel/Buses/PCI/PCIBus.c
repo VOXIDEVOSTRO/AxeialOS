@@ -2,6 +2,52 @@
 #include <KrnPrintf.h>
 #include <PCIBus.h>
 #include <String.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGPCIBUSC_Debug
+#    define LOGPCIBUSC_PDebug(fmt, ...) PDebug("[KERNEL>>PCIBus.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPCIBUSC_PDebug(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPCIBUSC_Logs
+#    define LOGPCIBUSC_PError(fmt, ...) PError("[KERNEL>>PCIBus.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPCIBUSC_PError(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPCIBUSC_Logs
+#    define LOGPCIBUSC_PWarn(fmt, ...) PWarn("[KERNEL>>PCIBus.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPCIBUSC_PWarn(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPCIBUSC_Logs
+#    define LOGPCIBUSC_PInfo(fmt, ...) PInfo("[KERNEL>>PCIBus.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPCIBUSC_PInfo(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPCIBUSC_Logs
+#    define LOGPCIBUSC_PSuccess(fmt, ...) PSuccess("[KERNEL>>PCIBus.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPCIBUSC_PSuccess(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 PciBusManager PciBus = {0};
 
@@ -10,6 +56,7 @@ InitializePciBus(void)
 {
     if (PciBus.Initialized)
     {
+        PushError("InitializePciBus", LOGPCIBUSC_PError, "pci bus already initilized", -Redefined);
         return -Redefined;
     }
 
@@ -17,9 +64,13 @@ InitializePciBus(void)
     PciBus.DeviceCount    = 0;
     PciBus.Devices        = (PciDevice*)KMalloc(sizeof(PciDevice) * MaxPciDevices);
 
-    if (!PciBus.Devices)
+    if (Probe_IF_Error(PciBus.Devices) || !PciBus.Devices)
     {
-        return -BadAlloc;
+        PushError("InitializePciBus",
+                  LOGPCIBUSC_PError,
+                  "can't allocate memory for pci devices",
+                  Pointer_TO_Error(PciBus.Devices));
+        return -BadAllocation;
     }
 
     for (uint32_t Index = 0; Index < MaxPciDevices; Index++)
@@ -35,7 +86,7 @@ InitializePciBus(void)
     SysErr* Error = &err;
     InitializeSpinLock(&PciBus.BusLock, "PCIBus", Error);
 
-    PDebug("PCI Bus Manager initialized\n");
+    LOGPCIBUSC_PDebug("PCI Bus Manager initialized\n");
 
     /*Scan all buses*/
     for (uint16_t BusNumber = 0; BusNumber < 256; BusNumber++)
@@ -44,7 +95,7 @@ InitializePciBus(void)
     }
 
     PciBus.Initialized = true;
-    PSuccess("PCI Bus initialized with %u devices\n", PciBus.DeviceCount);
+    LOGPCIBUSC_PSuccess("PCI Bus initialized with %u devices\n", PciBus.DeviceCount);
     return SysOkay;
 }
 
@@ -84,7 +135,8 @@ PciFindDevice(uint16_t __VendorId__, uint16_t __DeviceId__, uint32_t __Index__)
 {
     if (!PciBus.Initialized)
     {
-        return Error_TO_Pointer(-NotInit);
+        PushError("PciFindDevice", LOGPCIBUSC_PError, "pci bus not initialized", -NotInitilized);
+        return Error_TO_Pointer(-NotInitilized);
     }
 
     SysErr  err;
@@ -108,6 +160,7 @@ PciFindDevice(uint16_t __VendorId__, uint16_t __DeviceId__, uint32_t __Index__)
     }
 
     ReleaseSpinLock(&PciBus.BusLock, Error);
+    PushError("PciFindDevice", LOGPCIBUSC_PError, "cannot find such pci device", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }
 
@@ -116,7 +169,8 @@ PciGetDevice(uint8_t __Bus__, uint8_t __Device__, uint8_t __Function__)
 {
     if (!PciBus.Initialized)
     {
-        return Error_TO_Pointer(-NotInit);
+        PushError("PciGetDevice", LOGPCIBUSC_PError, "pci bus not initialized", -NotInitilized);
+        return Error_TO_Pointer(-NotInitilized);
     }
 
     SysErr  err;
@@ -136,6 +190,7 @@ PciGetDevice(uint8_t __Bus__, uint8_t __Device__, uint8_t __Function__)
     }
 
     ReleaseSpinLock(&PciBus.BusLock, Error);
+    PushError("PciGetDevice", LOGPCIBUSC_PError, "cannot find such pci device", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }
 
@@ -144,7 +199,8 @@ PciFindByClass(uint8_t __ClassCode__, uint8_t __SubClass__, uint32_t __Index__)
 {
     if (!PciBus.Initialized)
     {
-        return Error_TO_Pointer(-NotInit);
+        PushError("PciFindByClass", LOGPCIBUSC_PError, "pci bus not initialized", -NotInitilized);
+        return Error_TO_Pointer(-NotInitilized);
     }
 
     SysErr  err;
@@ -168,6 +224,7 @@ PciFindByClass(uint8_t __ClassCode__, uint8_t __SubClass__, uint32_t __Index__)
     }
 
     ReleaseSpinLock(&PciBus.BusLock, Error);
+    PushError("PciFindByClass", LOGPCIBUSC_PError, "cannot find such pci device", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }
 
@@ -176,7 +233,8 @@ PciEnableBusMastering(PciDevice* __Device__)
 {
     if (Probe_IF_Error(__Device__) || !__Device__)
     {
-        return -BadArgs;
+        PushError("PciEnableBusMastering", LOGPCIBUSC_PError, "bad pci device", -BadArguments);
+        return -BadArguments;
     }
 
     uint16_t Command =
@@ -185,10 +243,10 @@ PciEnableBusMastering(PciDevice* __Device__)
     PciConfigWrite16(__Device__->Bus, __Device__->Device, __Device__->Function, 0x04, Command);
     __Device__->Command = Command;
 
-    PDebug("Enabled bus mastering for device %02x:%02x.%x\n",
-           __Device__->Bus,
-           __Device__->Device,
-           __Device__->Function);
+    LOGPCIBUSC_PDebug("Enabled bus mastering for device %02x:%02x.%x\n",
+                      __Device__->Bus,
+                      __Device__->Device,
+                      __Device__->Function);
     return SysOkay;
 }
 
@@ -197,7 +255,8 @@ PciDisableBusMastering(PciDevice* __Device__)
 {
     if (Probe_IF_Error(__Device__) || !__Device__)
     {
-        return -BadArgs;
+        PushError("PciDisableBusMastering", LOGPCIBUSC_PError, "bad pci device", -BadArguments);
+        return -BadArguments;
     }
 
     uint16_t Command =
@@ -213,7 +272,8 @@ PciEnableMemorySpace(PciDevice* __Device__)
 {
     if (Probe_IF_Error(__Device__) || !__Device__)
     {
-        return -BadArgs;
+        PushError("PciEnableMemorySpace", LOGPCIBUSC_PError, "bad pci device", -BadArguments);
+        return -BadArguments;
     }
 
     uint16_t Command =
@@ -229,7 +289,8 @@ PciEnableIoSpace(PciDevice* __Device__)
 {
     if (Probe_IF_Error(__Device__) || !__Device__)
     {
-        return -BadArgs;
+        PushError("PciEnableIoSpace", LOGPCIBUSC_PError, "bad pci device", -BadArguments);
+        return -BadArguments;
     }
 
     uint16_t Command =
@@ -245,6 +306,7 @@ PciGetBarAddress(PciDevice* __Device__, uint8_t __BarIndex__)
 {
     if (Probe_IF_Error(__Device__) || !__Device__ || __BarIndex__ >= 6)
     {
+        PushError("PciGetBarAddress", LOGPCIBUSC_PError, "bad args", -BadArguments);
         return Nothing;
     }
 
@@ -256,6 +318,7 @@ PciGetBarSize(PciDevice* __Device__, uint8_t __BarIndex__)
 {
     if (Probe_IF_Error(__Device__) || !__Device__ || __BarIndex__ >= 6)
     {
+        PushError("PciGetBarSize", LOGPCIBUSC_PError, "bad args", -BadArguments);
         return Nothing;
     }
 
@@ -267,6 +330,7 @@ PciGetBarType(PciDevice* __Device__, uint8_t __BarIndex__)
 {
     if (Probe_IF_Error(__Device__) || !__Device__ || __BarIndex__ >= 6)
     {
+        PushError("PciGetBarType", LOGPCIBUSC_PError, "bad args", -BadArguments);
         return Nothing;
     }
 
@@ -295,6 +359,7 @@ PciProbeFunction(uint8_t __Bus__, uint8_t __Device__, uint8_t __Function__)
 
     if (Device.VendorId == 0xFFFF || Device.VendorId == 0x0000)
     {
+        PushError("PciProbeFunction", LOGPCIBUSC_PError, "no device at this location", -NoSuch);
         return -NoSuch;
     }
 
@@ -322,17 +387,18 @@ PciProbeFunction(uint8_t __Bus__, uint8_t __Device__, uint8_t __Function__)
     int Result = PciAddDevice(&Device);
     if (Result != SysOkay)
     {
+        PushError("PciProbeFunction", LOGPCIBUSC_PError, "cannot add device to pci bus", Result);
         return Result;
     }
 
-    PDebug("Found PCI device %02x:%02x.%x - %04x:%04x (Class: %02x:%02x)\n",
-           __Bus__,
-           __Device__,
-           __Function__,
-           Device.VendorId,
-           Device.DeviceId,
-           Device.ClassCode,
-           Device.SubClass);
+    LOGPCIBUSC_PDebug("Found PCI device %02x:%02x.%x - %04x:%04x (Class: %02x:%02x)\n",
+                      __Bus__,
+                      __Device__,
+                      __Function__,
+                      Device.VendorId,
+                      Device.DeviceId,
+                      Device.ClassCode,
+                      Device.SubClass);
 
     return SysOkay;
 }
@@ -342,6 +408,7 @@ PciAddDevice(PciDevice* __Device__)
 {
     if (PciBus.DeviceCount >= PciBus.DeviceCapacity)
     {
+        PushError("PciAddDevice", LOGPCIBUSC_PError, "too many pci devices", -TooMany);
         return -TooMany;
     }
 
@@ -459,6 +526,10 @@ PciReadCapabilities(PciDevice* __Device__, SysErr* __Err__)
     if (!(__Device__->Status & (1 << 4)))
     {
         SlotError(__Err__, -NoOperations);
+        PushError("PciReadCapabilities",
+                  LOGPCIBUSC_PError,
+                  "device doesn't support capabilities",
+                  -NoOperations);
         return; /*No capabilities*/
     }
 
@@ -488,5 +559,6 @@ PciFindCapability(PciDevice* __Device__, uint8_t __CapId__)
             PciConfigRead8(__Device__->Bus, __Device__->Device, __Device__->Function, CapPtr + 1);
     }
 
+    PushError("PciFindCapability", LOGPCIBUSC_PError, "capability not found", -NoSuch);
     return Nothing;
 }

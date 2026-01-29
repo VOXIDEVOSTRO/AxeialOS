@@ -38,14 +38,7 @@ LocalTemp := .Build
 # Driver configuration
 ModuleName := NameMe.ko
 DriverType := system
-DriverSubType := 
-
-# Determine install path
-ifeq ($(DriverSubType),)
-    InstallPath := $(FinalTemp)/sys/drvs/$(DriverType)
-else
-    InstallPath := $(FinalTemp)/sys/drvs/$(DriverType)/$(DriverSubType)
-endif
+InstallPath := $(FinalTemp)/sys/drvs/$(DriverType)
 
 Cs := $(wildcard *.c)
 Os := $(patsubst %.c,$(LocalTemp)/%.o,$(Cs))

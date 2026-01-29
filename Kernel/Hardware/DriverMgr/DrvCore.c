@@ -3,6 +3,52 @@
 #include <KrnPrintf.h>
 #include <String.h>
 #include <Timer.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGDRVCOREC_Debug
+#    define LOGDRVCOREC_PDebug(fmt, ...) PDebug("[KERNEL>>DrvCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDRVCOREC_PDebug(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGDRVCOREC_Logs
+#    define LOGDRVCOREC_PError(fmt, ...) PError("[KERNEL>>DrvCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDRVCOREC_PError(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGDRVCOREC_Logs
+#    define LOGDRVCOREC_PWarn(fmt, ...) PWarn("[KERNEL>>DrvCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDRVCOREC_PWarn(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGDRVCOREC_Logs
+#    define LOGDRVCOREC_PInfo(fmt, ...) PInfo("[KERNEL>>DrvCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDRVCOREC_PInfo(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGDRVCOREC_Logs
+#    define LOGDRVCOREC_PSuccess(fmt, ...) PSuccess("[KERNEL>>DrvCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDRVCOREC_PSuccess(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 DriverManagerContext DriverManager = {0};
 
@@ -11,6 +57,10 @@ InitializeDriverManager(void)
 {
     if (DriverManager.Initialized)
     {
+        PushError("InitializeDriverManager",
+                  LOGDRVCOREC_PError,
+                  "driver mgr already initilized",
+                  -Redefined);
         return -Redefined;
     }
 
@@ -19,7 +69,7 @@ InitializeDriverManager(void)
 
     for (uint32_t TypeIndex = 0; TypeIndex < MaxDriverTypes; TypeIndex++)
     {
-        DriverManager.Types[TypeIndex].Type        = DriverTypeCustom;
+        DriverManager.Types[TypeIndex].Type        = DriverTypeDefault;
         DriverManager.Types[TypeIndex].DriverCount = 0;
 
         for (uint32_t DriverIndex = 0; DriverIndex < MaxDriversPerType; DriverIndex++)
@@ -37,25 +87,26 @@ InitializeDriverManager(void)
     InitializeSpinLock(&DriverManager.ManagerLock, "DriverManager", Error);
 
     /*Default driver types*/
-    RegisterDriverType("input", DriverTypeInput);
-    RegisterDriverType("storage", DriverTypeStorage);
-    RegisterDriverType("network", DriverTypeNetwork);
-    RegisterDriverType("graphics", DriverTypeGraphics);
-    RegisterDriverType("audio", DriverTypeAudio);
-    RegisterDriverType("usb", DriverTypeUsb);
-    RegisterDriverType("pci", DriverTypePci);
-    RegisterDriverType("serial", DriverTypeSerial);
-    RegisterDriverType("system", DriverTypeSystem);
+
+    for (int I = 0; DriverTypes[I]; I++)
+    {
+        int Ret = RegisterDriverType(DriverTypes[I], I);
+        if (Ret != SysOkay)
+        {
+            LOGDRVCOREC_PWarn(
+                "Failed to register default driver type: %s (%d)\n", DriverTypes[I], Ret);
+        }
+    }
 
     DriverManager.Initialized = true;
 
-    PSuccess("Driver Manager initialized\n");
+    LOGDRVCOREC_PSuccess("Driver Manager initialized\n");
 
     /*Scan for existing drivers*/
     int ScanResult = ScanDriverDirectory();
     if (ScanResult != SysOkay)
     {
-        PWarn("Driver directory scan failed: %d\n", ScanResult);
+        LOGDRVCOREC_PWarn("Driver directory scan failed: %d\n", ScanResult);
     }
 
     return SysOkay;
@@ -66,7 +117,11 @@ ShutdownDriverManager(SysErr* __Err__)
 {
     if (!DriverManager.Initialized)
     {
-        SlotError(__Err__, -NotInit);
+        SlotError(__Err__, -NotInitilized);
+        PushError("ShutdownDriverManager",
+                  LOGDRVCOREC_PError,
+                  "driver mgr not initilized",
+                  -NotInitilized);
         return;
     }
 
@@ -93,7 +148,7 @@ ShutdownDriverManager(SysErr* __Err__)
 
     ReleaseSpinLock(&DriverManager.ManagerLock, __Err__);
 
-    PInfo("Driver Manager shutdown complete\n");
+    LOGDRVCOREC_PInfo("Driver Manager shutdown complete\n");
 }
 
 int
@@ -101,7 +156,8 @@ RegisterDriverType(const char* __TypeName__, DriverType __Type__)
 {
     if (Probe_IF_Error(__TypeName__) || !__TypeName__ || DriverManager.TypeCount >= MaxDriverTypes)
     {
-        return -BadArgs;
+        PushError("RegisterDriverType", LOGDRVCOREC_PError, "bad args", -BadArguments);
+        return -BadArguments;
     }
 
     SysErr  err;
@@ -114,6 +170,8 @@ RegisterDriverType(const char* __TypeName__, DriverType __Type__)
         if (DriverManager.Types[TypeIndex].Type == __Type__)
         {
             ReleaseSpinLock(&DriverManager.ManagerLock, Error);
+            PushError(
+                "RegisterDriverType", LOGDRVCOREC_PError, "driver type already exists", -Redefined);
             return -Redefined;
         }
     }
@@ -127,7 +185,7 @@ RegisterDriverType(const char* __TypeName__, DriverType __Type__)
 
     ReleaseSpinLock(&DriverManager.ManagerLock, Error);
 
-    PDebug("Registered driver type: %s (%u)\n", __TypeName__, __Type__);
+    LOGDRVCOREC_PDebug("Registered driver type: %s (%u)\n", __TypeName__, __Type__);
     return SysOkay;
 }
 
@@ -146,6 +204,10 @@ UnregisterDriverType(DriverType __Type__)
             if (DriverManager.Types[TypeIndex].DriverCount > 0)
             {
                 ReleaseSpinLock(&DriverManager.ManagerLock, Error);
+                PushError("UnregisterDriverType",
+                          LOGDRVCOREC_PError,
+                          "drivers are still using this type",
+                          -Busy);
                 return -Busy;
             }
 
@@ -163,6 +225,7 @@ UnregisterDriverType(DriverType __Type__)
     }
 
     ReleaseSpinLock(&DriverManager.ManagerLock, Error);
+    PushError("UnregisterDriverType", LOGDRVCOREC_PError, "no such driver type", -NoSuch);
     return -NoSuch;
 }
 
@@ -177,7 +240,8 @@ FindDriverByName(const char* __DriverName__)
 {
     if (Probe_IF_Error(__DriverName__) || !__DriverName__ || !DriverManager.Initialized)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("FindDriverByName", LOGDRVCOREC_PError, "bad args", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     SysErr  err;
@@ -196,6 +260,7 @@ FindDriverByName(const char* __DriverName__)
     }
 
     ReleaseSpinLock(&DriverManager.ManagerLock, Error);
+    PushError("FindDriverByName", LOGDRVCOREC_PError, "no such driver", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }
 
@@ -204,7 +269,8 @@ FindDriverByPath(const char* __FilePath__)
 {
     if (Probe_IF_Error(__FilePath__) || !__FilePath__ || !DriverManager.Initialized)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("FindDriverByPath", LOGDRVCOREC_PError, "bad args", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     SysErr  err;
@@ -223,6 +289,7 @@ FindDriverByPath(const char* __FilePath__)
     }
 
     ReleaseSpinLock(&DriverManager.ManagerLock, Error);
+    PushError("FindDriverByPath", LOGDRVCOREC_PError, "no such driver", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }
 
@@ -230,8 +297,9 @@ uint32_t
 GetDriverRefCount(const char* __DriverName__)
 {
     DriverEntry* Driver = FindDriverByName(__DriverName__);
-    if (Probe_IF_Error(Driver))
+    if (Probe_IF_Error(Driver) || !Driver)
     {
+        PushError("GetDriverRefCount", LOGDRVCOREC_PError, "no such driver", -NoSuch);
         return Nothing;
     }
 
@@ -244,7 +312,9 @@ IncrementDriverRef(const char* __DriverName__)
     DriverEntry* Driver = FindDriverByName(__DriverName__);
     if (Probe_IF_Error(Driver))
     {
-        return Pointer_TO_Error(Driver);
+        PushError(
+            "IncrementDriverRef", LOGDRVCOREC_PError, "no such driver", Pointer_TO_Error(Driver));
+        return -NoSuch;
     }
 
     __atomic_fetch_add(&Driver->RefCount, 1, __ATOMIC_SEQ_CST);
@@ -257,14 +327,18 @@ int
 DecrementDriverRef(const char* __DriverName__)
 {
     DriverEntry* Driver = FindDriverByName(__DriverName__);
-    if (Probe_IF_Error(Driver))
+    if (Probe_IF_Error(Driver) || !Driver)
     {
-        return Pointer_TO_Error(Driver);
+        PushError(
+            "DecrementDriverRef", LOGDRVCOREC_PError, "no such driver", Pointer_TO_Error(Driver));
+        return -NoSuch;
     }
 
     if (Driver->RefCount == 0)
     {
-        return -BadArgs;
+        PushError(
+            "DecrementDriverRef", LOGDRVCOREC_PError, "ref count is already 0", -BadArguments);
+        return -BadArguments;
     }
 
     __atomic_fetch_sub(&Driver->RefCount, 1, __ATOMIC_SEQ_CST);
