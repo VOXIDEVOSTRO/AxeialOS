@@ -3,6 +3,52 @@
 #include <KHeap.h>
 #include <String.h>
 #include <VFS.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGBLOBOPSC_Debug
+#    define LOGBLOBOPSC_PDebug(fmt, ...) PDebug("[KERNEL>>BlobOps.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBLOBOPSC_PDebug(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGBLOBOPSC_Logs
+#    define LOGBLOBOPSC_PError(fmt, ...) PError("[KERNEL>>BlobOps.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBLOBOPSC_PError(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGBLOBOPSC_Logs
+#    define LOGBLOBOPSC_PWarn(fmt, ...) PWarn("[KERNEL>>BlobOps.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBLOBOPSC_PWarn(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGBLOBOPSC_Logs
+#    define LOGBLOBOPSC_PInfo(fmt, ...) PInfo("[KERNEL>>BlobOps.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBLOBOPSC_PInfo(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGBLOBOPSC_Logs
+#    define LOGBLOBOPSC_PSuccess(fmt, ...) PSuccess("[KERNEL>>BlobOps.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBLOBOPSC_PSuccess(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 /* Request firmware blob */
 int
@@ -12,7 +58,8 @@ FirmRequest(FirmwareHandle**    __OutHandle__,
 {
     if (Probe_IF_Error(__OutHandle__) || !__OutHandle__ || Probe_IF_Error(__Desc__) || !__Desc__)
     {
-        return -BadArgs;
+        PushError("FirmRequest", LOGBLOBOPSC_PError, "bad arguments to FirmRequest", -BadArguments);
+        return -BadArguments;
     }
 
     SysErr  err;
@@ -21,7 +68,11 @@ FirmRequest(FirmwareHandle**    __OutHandle__,
     FirmwareHandle* H = (FirmwareHandle*)KMalloc(sizeof(FirmwareHandle));
     if (Probe_IF_Error(H) || !H)
     {
-        return -BadAlloc;
+        PushError("FirmRequest",
+                  LOGBLOBOPSC_PError,
+                  "can't allocate memory for handle",
+                  Pointer_TO_Error(H));
+        return -BadAllocation;
     }
     memset(H, 0, sizeof(FirmwareHandle));
     H->Desc        = *__Desc__;
@@ -33,6 +84,7 @@ FirmRequest(FirmwareHandle**    __OutHandle__,
     {
         KFree(H, Error);
         *__OutHandle__ = 0;
+        PushError("FirmRequest", LOGBLOBOPSC_PError, "cannot resolve path", -NotCanonical);
         return -NotCanonical;
     }
 
@@ -41,6 +93,7 @@ FirmRequest(FirmwareHandle**    __OutHandle__,
     {
         KFree(H, Error);
         *__OutHandle__ = 0;
+        PushError("FirmRequest", LOGBLOBOPSC_PError, "cannot open firmware file", -NoSuch);
         return -NoSuch;
     }
 
@@ -50,6 +103,7 @@ FirmRequest(FirmwareHandle**    __OutHandle__,
         VfsClose(F);
         KFree(H, Error);
         *__OutHandle__ = 0;
+        PushError("FirmRequest", LOGBLOBOPSC_PError, "file size is bad", -Limits);
         return -Limits;
     }
 
@@ -59,7 +113,11 @@ FirmRequest(FirmwareHandle**    __OutHandle__,
         VfsClose(F);
         KFree(H, Error);
         *__OutHandle__ = 0;
-        return -BadAlloc;
+        PushError("FirmRequest",
+                  LOGBLOBOPSC_PError,
+                  "cannot allocate memory for blob",
+                  Pointer_TO_Error(Buf));
+        return -BadAllocation;
     }
 
     long Read   = 0;
@@ -71,13 +129,14 @@ FirmRequest(FirmwareHandle**    __OutHandle__,
         KFree(Buf, Error);
         KFree(H, Error);
         *__OutHandle__ = 0;
-        return -NoRead;
+        PushError("FirmRequest", LOGBLOBOPSC_PError, "cannot read firmware file", -BadRead);
+        return -BadRead;
     }
 
     H->Blob.Data = Buf;
     H->Blob.Size = Read;
 
-    PSuccess("Loaded firmware module '%s' size=%ld\n", PathBuf, Read);
+    LOGBLOBOPSC_PSuccess("Loaded firmware module '%s' size=%ld\n", PathBuf, Read);
     return SysOkay;
 }
 

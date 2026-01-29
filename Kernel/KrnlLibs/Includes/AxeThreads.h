@@ -157,7 +157,6 @@ extern uint32_t NextThreadId;
 extern Thread*  ThreadList;
 extern SpinLock ThreadListLock;
 extern Thread*  CurrentThreads[MaxCPUs];
-extern Thread*  IdleThread;
 
 #define THREAD_PRIO_TO_RAW(__p)                                                                    \
     ((__p) == ThreadPriorityUltra    ? 0                                                           \
@@ -219,14 +218,14 @@ uint32_t CalculateOptimalCpu(Thread* __ThreadPtr__);
 void     ThreadExecute(Thread* __ThreadPtr__, SysErr* __Err__);
 void     ThreadExecuteMultiple(Thread** __ThreadArray__, uint32_t __ThreadCount__, SysErr* __Err__);
 void     LoadBalanceThreads(SysErr* __Err__);
-void     GetSystemLoadStats(uint32_t* __TotalThreads__,
-                            uint32_t* __AverageLoad__,
-                            uint32_t* __MaxLoad__,
-                            uint32_t* __MinLoad__,
-                            SysErr*   __Err__);
+void     GetSystemLoadStats(uint32_t*       __TotalThreads__,
+                            uint32_t*       __AverageLoad__,
+                            uint32_t*       __MaxLoad__,
+                            uint32_t*       __MinLoad__,
+                            SysErr* __Err__ _unused);
 void     WakeSleepingThreads(SysErr* __Err__);
 void     DumpThreadInfo(Thread* __ThreadPtr__, SysErr* __Err__);
-void     DumpAllThreads(SysErr* __Err__);
+void     DumpAllThreads(SysErr* __Err__ _unused);
 
 KEXPORT(GetCurrentThread);
 KEXPORT(CreateThread);
@@ -242,3 +241,7 @@ KEXPORT(FindThreadById);
 KEXPORT(GetThreadCount);
 KEXPORT(ThreadExecute);
 KEXPORT(ThreadExecuteMultiple);
+KEXPORT(GetSystemLoadStats);
+KEXPORT(DumpThreadInfo);
+KEXPORT(DumpAllThreads);
+KEXPORT(LoadBalanceThreads);

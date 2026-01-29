@@ -27,6 +27,10 @@ void PutChar(char __Char__);
 void PutPrint(const char* __String__);
 void SetBGColor(uint32_t __FG__, uint32_t __BG__);
 void SetCursor(uint32_t __CurX__, uint32_t __CurY__);
-void ScrollConsole(void);
 
+/* console core */
+KEXPORT(ClearConsole);
 KEXPORT(PutChar);
+KEXPORT(PutPrint);
+KEXPORT(SetBGColor);
+KEXPORT(SetCursor);

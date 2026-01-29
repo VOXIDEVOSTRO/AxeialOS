@@ -1,4 +1,50 @@
 #include <VMM.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGPAGESC_Debug
+#    define LOGPAGESC_PDebug(fmt, ...) PDebug("[KERNEL>>Pages.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPAGESC_PDebug(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPAGESC_Logs
+#    define LOGPAGESC_PError(fmt, ...) PError("[KERNEL>>Pages.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPAGESC_PError(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPAGESC_Logs
+#    define LOGPAGESC_PWarn(fmt, ...) PWarn("[KERNEL>>Pages.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPAGESC_PWarn(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPAGESC_Logs
+#    define LOGPAGESC_PInfo(fmt, ...) PInfo("[KERNEL>>Pages.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPAGESC_PInfo(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPAGESC_Logs
+#    define LOGPAGESC_PSuccess(fmt, ...) PSuccess("[KERNEL>>Pages.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPAGESC_PSuccess(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 uint64_t*
 GetPageTable(uint64_t* __Pml4__, uint64_t __VirtAddr__, int __Level__, int __Create__)
@@ -16,13 +62,21 @@ GetPageTable(uint64_t* __Pml4__, uint64_t __VirtAddr__, int __Level__, int __Cre
         {
             if (!__Create__)
             {
-                return Error_TO_Pointer(-BadAlloc);
+                PushError("GetPageTable",
+                          LOGPAGESC_PError,
+                          "page table entry not present",
+                          -BadAllocation);
+                return Error_TO_Pointer(-BadAllocation);
             }
 
             uint64_t NewTablePhys = AllocPage();
             if (!NewTablePhys)
             {
-                return Error_TO_Pointer(-BadAlloc);
+                PushError("GetPageTable",
+                          LOGPAGESC_PError,
+                          "failed to allocate page for new page table",
+                          -BadAllocation);
+                return Error_TO_Pointer(-BadAllocation);
             }
 
             uint64_t* NewTable = (uint64_t*)PhysToVirt(NewTablePhys);
@@ -35,7 +89,7 @@ GetPageTable(uint64_t* __Pml4__, uint64_t __VirtAddr__, int __Level__, int __Cre
             uint64_t NewEntry = NewTablePhys | PTEPRESENT | PTEWRITABLE | PTEUSER;
             __atomic_store_n(&CurrentTable[CurrentIndex], NewEntry, __ATOMIC_SEQ_CST);
 
-            PDebug("Created page table at level %d: 0x%016lx\n", Level - 1, NewTablePhys);
+            LOGPAGESC_PDebug("Created page table at level %d: 0x%016lx\n", Level - 1, NewTablePhys);
             Entry = NewEntry;
         }
 
@@ -70,4 +124,14 @@ FlushAllTlb(SysErr* __Err__ __attribute((unused)))
     uint64_t Cr3;
     __asm__ volatile("mov %%cr3, %0" : "=r"(Cr3));
     __asm__ volatile("mov %0, %%cr3" ::"r"(Cr3) : "memory");
+}
+
+_Atomic uint64_t BspKernelCr3 = 0;
+
+void /*For the APs*/
+PublishBspKernelCr3(void)
+{
+    uint64_t CR3;
+    __asm__ volatile("mov %%cr3, %0" : "=r"(CR3));
+    atomic_store_explicit(&BspKernelCr3, CR3, memory_order_release);
 }

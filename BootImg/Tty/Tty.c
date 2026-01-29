@@ -29,11 +29,9 @@
 #include <VFS.h>
 #include <VMM.h>
 
-/*
-    Note: partially works...
-*/
-
-/*Super Simple TTY Application, Just writes to EarlyBootConsole*/
+/* Global errno */
+SysErr  err;
+SysErr* Error = &err;
 
 typedef struct TtyCtx
 {
@@ -41,11 +39,8 @@ typedef struct TtyCtx
     uint32_t Fg;
     uint32_t Bg;
     SpinLock Lock;
+    SpinLock WriteLock;
 } TtyCtx;
-
-/*Global errno*/
-SysErr  err;
-SysErr* Error = &err;
 
 static long
 TtyWrite(void* __DevCtx__, const void* __Buf__, long __Len__)
@@ -53,50 +48,69 @@ TtyWrite(void* __DevCtx__, const void* __Buf__, long __Len__)
     TtyCtx* CCtx = (TtyCtx*)__DevCtx__;
     if (!CCtx || !__Buf__ || __Len__ <= 0)
     {
-        return 0;
+        return -BadArguments;
     }
+
     const char* Put = (const char*)__Buf__;
-    for (long Idx = 0; Idx < __Len__; Idx++)
+
+    AcquireSpinLock(&CCtx->WriteLock, Error);
+    for (long I = 0; I < __Len__; I++)
     {
-        PutChar(Put[Idx]);
+        char Char = Put[I];
+        if (Char == '\n')
+        {
+            PutChar('\r');
+            PutChar('\n');
+        }
+        else
+        {
+            PutChar(Char);
+        }
     }
+
+    ReleaseSpinLock(&CCtx->WriteLock, Error);
+
     return __Len__;
 }
 
 static long
-TtyRead(void* __DevCtx__, void* __Buf__, long __Len__)
+TtyRead(void* __DevCtx__ _unused, void* __Buf__ _unused, long __Len__ _unused)
 {
-    (void)__DevCtx__;
-    (void)__Buf__;
-    (void)__Len__;
-    return 0;
+    return SysOkay;
 }
 
 static int
-TtyOpen(void* __DevCtx__)
+TtyOpen(void* __DevCtx__ _unused)
 {
-    (void)__DevCtx__;
-    return 0;
+    TtyCtx* CCtx = (TtyCtx*)__DevCtx__;
+    if (CCtx)
+    {
+        atomic_flag_clear_explicit(&CCtx->WriteLock, memory_order_release);
+    }
+    return SysOkay;
 }
 
 static int
-TtyClose(void* __DevCtx__)
+TtyClose(void* __DevCtx__ _unused)
 {
-    (void)__DevCtx__;
-    return 0;
+    return SysOkay;
 }
 
+/* Name builder: "tty" + index */
 static void
-TtyMakeName(char* __Out__, long __Cap__, long __Index__)
+TtyMakeName(char* __Out__, long __Cap__, long __Index__, SysErr* __Err__)
 {
     if (!__Out__ || __Cap__ < 4)
     {
+        SlotError(__Err__, -BadArguments);
         return;
     }
+
     __Out__[0] = 't';
     __Out__[1] = 't';
     __Out__[2] = 'y';
     long Pos   = 3;
+
     char NumBuf[32];
     long I = 0;
     long V = __Index__;
@@ -119,7 +133,8 @@ TtyMakeName(char* __Out__, long __Cap__, long __Index__)
         }
     }
     NumBuf[I] = '\0';
-    long K    = 0;
+
+    long K = 0;
     while (NumBuf[K] && Pos < __Cap__ - 1)
     {
         __Out__[Pos++] = NumBuf[K++];
@@ -132,8 +147,9 @@ TtyExists(const char* __Name__)
 {
     if (!__Name__)
     {
-        return 0;
+        return -BadArguments;
     }
+
     char Path[64];
     Path[0] = '/';
     Path[1] = 'd';
@@ -152,12 +168,12 @@ TtyExists(const char* __Name__)
     if (F)
     {
         VfsClose(F);
-        return 1;
+        return SysOkay; /* exists */
     }
-    return 0;
+    return -NoSuch; /* does not exist */
 }
 
-/*Foward*/
+/* Forward */
 static int TtyIoctl(void* __DevCtx__, unsigned long __Cmd__, void* __Arg__);
 
 static int
@@ -166,12 +182,14 @@ TtyRegister(long __Index__)
     TtyCtx* Ctx = KMalloc(sizeof(TtyCtx));
     if (!Ctx)
     {
-        return -1;
+        return -BadAllocation;
     }
     memset(Ctx, 0, sizeof(TtyCtx));
-    TtyMakeName(Ctx->Name, sizeof(Ctx->Name), __Index__);
+    TtyMakeName(Ctx->Name, sizeof(Ctx->Name), __Index__, Error);
 
-    CharDevOps Ops = {
+    atomic_flag_clear_explicit(&Ctx->WriteLock, memory_order_release);
+
+    CharDevOps Ops = (CharDevOps){
         .Open  = TtyOpen,
         .Close = TtyClose,
         .Read  = TtyRead,
@@ -179,43 +197,37 @@ TtyRegister(long __Index__)
         .Ioctl = TtyIoctl,
     };
 
-    if (TtyExists(Ctx->Name) == 0)
+    /* Register only if it does NOT exist */
+    if (TtyExists(Ctx->Name) == SysOkay)
     {
-        KFree(Ctx, Error);
-        return -1;
-    }
+        int Ret = DevFsRegisterCharDevice(Ctx->Name, 11, __Index__, Ops, Ctx);
+        if (Ret != SysOkay)
+        {
+            KFree(Ctx, Error);
+        }
 
-    int Ret = DevFsRegisterCharDevice(Ctx->Name, 11, __Index__, Ops, Ctx);
-    if (Ret == 0)
-    {
-        PSuccess("tty registered at %s\n", Ctx->Name);
+        return SysOkay;
     }
-    else
-    {
-        PError("tty registration failed (Ret=%d)\n", Ret);
-        KFree(Ctx, Error);
-    }
-
-    return Ret;
+    return -NotRecorded;
 }
 
 static int
 TtyIoctl(void* __DevCtx__, unsigned long __Cmd__, void* __Arg__)
 {
-    (void)__DevCtx__;
     switch (__Cmd__)
     {
         case 1:
             return TtyRegister((long)(uintptr_t)__Arg__);
         default:
-            return -1;
+            return -NoSuch;
     }
 }
 
 void
 InitTty(void)
 {
-    TtyRegister(0);
+    /* First TTY instance */
+    (void)TtyRegister(0);
 }
 
 void
@@ -227,14 +239,11 @@ module_init(void)
 int
 module_probe(void)
 {
-    if (TtyExists("tty0") != 1)
-    {
-        return -NoSuch;
-    }
-    return SysOkay;
+    return (TtyExists("tty0") == SysOkay) ? SysOkay : -NoSuch;
 }
 
 void
 module_exit(void)
 {
+    /* TODO: optional unregister */
 }

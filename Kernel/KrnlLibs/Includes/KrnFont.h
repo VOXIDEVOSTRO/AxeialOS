@@ -1,9 +1,7 @@
 #pragma once
 #include <AllTypes.h>
 #include <Errnos.h>
-
-/*8x16*/
-#define __F16
+#include <__AXEKCONF__.h>
 
 /*F016*/
 #ifdef __F16

@@ -1,6 +1,8 @@
 #include <AllTypes.h>
 #include <KrnPrintf.h>
 
+/*Deprecated?*/
+
 int
 module_probe(void)
 {

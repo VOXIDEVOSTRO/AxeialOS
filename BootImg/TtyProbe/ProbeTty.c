@@ -1,13 +1,15 @@
 #include <DevMgr.h>
 #include <Errnos.h>
 
+/*load 'Tty' device, blindly*/
+
 int
 module_probe(void)
 {
     int Return = LoadDriver("Tty");
     if (Return != SysOkay)
     {
-        return -ErrReturn;
+        return -BadReturn;
     }
     return SysOkay;
 }

@@ -1,6 +1,52 @@
 #include <Errnos.h>
 #include <SMP.h>
 #include <Sync.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGMUTEXESC_Debug
+#    define LOGMUTEXESC_PDebug(fmt, ...) PDebug("[KERNEL>>Mutexes.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMUTEXESC_PDebug(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGMUTEXESC_Logs
+#    define LOGMUTEXESC_PError(fmt, ...) PError("[KERNEL>>Mutexes.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMUTEXESC_PError(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGMUTEXESC_Logs
+#    define LOGMUTEXESC_PWarn(fmt, ...) PWarn("[KERNEL>>Mutexes.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMUTEXESC_PWarn(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGMUTEXESC_Logs
+#    define LOGMUTEXESC_PInfo(fmt, ...) PInfo("[KERNEL>>Mutexes.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMUTEXESC_PInfo(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGMUTEXESC_Logs
+#    define LOGMUTEXESC_PSuccess(fmt, ...) PSuccess("[KERNEL>>Mutexes.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMUTEXESC_PSuccess(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 #define KernelValue 0xFFFFFFFF
 

@@ -57,3 +57,4 @@ uint32_t    GetCurrentCpuId(void);
 PerCpuData* GetPerCpuData(uint32_t __CpuNumber__);
 
 KEXPORT(GetCurrentCpuId);
+KEXPORT(GetPerCpuData);

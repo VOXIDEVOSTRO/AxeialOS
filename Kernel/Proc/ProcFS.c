@@ -7,6 +7,52 @@
 #include <String.h>
 #include <Timer.h>
 #include <VFS.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGPROCFSC_Debug
+#    define LOGPROCFSC_PDebug(fmt, ...) PDebug("[KERNEL>>ProcFS.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCFSC_PDebug(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROCFSC_Logs
+#    define LOGPROCFSC_PError(fmt, ...) PError("[KERNEL>>ProcFS.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCFSC_PError(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROCFSC_Logs
+#    define LOGPROCFSC_PWarn(fmt, ...) PWarn("[KERNEL>>ProcFS.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCFSC_PWarn(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROCFSC_Logs
+#    define LOGPROCFSC_PInfo(fmt, ...) PInfo("[KERNEL>>ProcFS.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCFSC_PInfo(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROCFSC_Logs
+#    define LOGPROCFSC_PSuccess(fmt, ...) PSuccess("[KERNEL>>ProcFS.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCFSC_PSuccess(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 typedef struct ProcFsInode
 {
@@ -43,9 +89,9 @@ typedef struct ProcPidEntry
 static ProcPidEntry __ProcPidCache__[ProcMaxPIDS];
 
 static inline long
-__Min__(long a, long IdxUal)
+__Min__(long Idx, long IdxUal)
 {
-    return a < IdxUal ? a : IdxUal;
+    return Idx < IdxUal ? Idx : IdxUal;
 }
 
 static inline PosixProc*
@@ -62,6 +108,10 @@ ProcFsNotifyProcAdded(PosixProc* __Proc__)
 
     if (Probe_IF_Error(__Proc__) || !__Proc__ || __Proc__->Pid <= 0 || __Proc__->Pid >= ProcMaxPIDS)
     {
+        PushError("ProcFsNotifyProcAdded",
+                  LOGPROCFSC_PError,
+                  "Bad args to ProcFsNotifyProcAdded",
+                  -BadEntry);
         return -BadEntry;
     }
 
@@ -83,7 +133,11 @@ ProcFsNotifyProcAdded(PosixProc* __Proc__)
     ProcFsNode* D = (ProcFsNode*)KMalloc(sizeof(ProcFsNode));
     if (Probe_IF_Error(D) || !D)
     {
-        return -BadAlloc;
+        PushError("ProcFsNotifyProcAdded",
+                  LOGPROCFSC_PError,
+                  "Failed to allocate ProcFsNode in ProcFsNotifyProcAdded",
+                  Pointer_TO_Error(D));
+        return -BadAllocation;
     }
     memset(D, 0, sizeof(*D));
     D->Kind = ProcFsNodeDir;
@@ -91,7 +145,11 @@ ProcFsNotifyProcAdded(PosixProc* __Proc__)
     if (Probe_IF_Error(D->Name) || !D->Name)
     {
         KFree(D, Error);
-        return -BadAlloc;
+        PushError("ProcFsNotifyProcAdded",
+                  LOGPROCFSC_PError,
+                  "Failed to allocate ProcFsNode::Name in ProcFsNotifyProcAdded",
+                  Pointer_TO_Error(D->Name));
+        return -BadAllocation;
     }
     strcpy(D->Name, Num, (uint32_t)(strlen(Num) + 1));
     D->Ino       = 100 + __Proc__->Pid;
@@ -109,6 +167,10 @@ ProcFsNotifyProcRemoved(PosixProc* __Proc__)
 {
     if (Probe_IF_Error(__Proc__) || !__Proc__ || __Proc__->Pid <= 0 || __Proc__->Pid >= ProcMaxPIDS)
     {
+        PushError("ProcFsNotifyProcRemoved",
+                  LOGPROCFSC_PError,
+                  "Bad args to ProcFsNotifyProcRemoved",
+                  -BadEntry);
         return -BadEntry;
     }
 
@@ -138,7 +200,8 @@ ProcOpen(Vnode* __Node__, File* __File__)
 {
     if (Probe_IF_Error(__Node__) || !__Node__ || Probe_IF_Error(__File__) || !__File__)
     {
-        return -BadArgs;
+        PushError("ProcOpen", LOGPROCFSC_PError, "Bad args to ProcOpen", -BadArguments);
+        return -BadArguments;
     }
     __File__->Priv = NULL;
     return SysOkay;
@@ -156,17 +219,20 @@ ProcRead(File* __File__, void* __Buf__, long __Len__)
     if (Probe_IF_Error(__File__) || !__File__ || Probe_IF_Error(__Buf__) || !__Buf__ ||
         __Len__ <= 0)
     {
-        return -BadArgs;
+        PushError("ProcRead", LOGPROCFSC_PError, "Bad args to ProcRead", -BadArguments);
+        return -BadArguments;
     }
     Vnode* Node = __File__->Node;
     if (Probe_IF_Error(Node) || !Node)
     {
+        PushError("ProcRead", LOGPROCFSC_PError, "Dangling node in ProcRead", -Dangling);
         return -Dangling;
     }
 
     ProcFsNode* Pn = (ProcFsNode*)Node->Priv;
     if (Probe_IF_Error(Pn) || !Pn)
     {
+        PushError("ProcRead", LOGPROCFSC_PError, "Dangling ProcFsNode in ProcRead", -Dangling);
         return -Dangling;
     }
 
@@ -211,6 +277,8 @@ ProcRead(File* __File__, void* __Buf__, long __Len__)
             PosixProc* cur = __CurrentProc__();
             if (Probe_IF_Error(cur) || !cur)
             {
+                LOGPROCFSC_PWarn("No current process in reading 'self' ProcFS entry");
+                ((char*)__Buf__)[0] = '\0';
                 return Nothing;
             }
             UnsignedToStringEx((uint64_t)cur->Pid, Buf, 10, 0);
@@ -222,6 +290,10 @@ ProcRead(File* __File__, void* __Buf__, long __Len__)
             PosixProc* Pr = (PosixProc*)Pn->Priv;
             if (Probe_IF_Error(Pr) || !Pr)
             {
+                PushError("ProcRead",
+                          LOGPROCFSC_PError,
+                          "Dangling PosixProc in reading 'stat' ProcFS entry",
+                          -BadEntity);
                 return -BadEntity;
             }
             return ProcFsMakeStat(Pr, Buf, Cap);
@@ -232,6 +304,10 @@ ProcRead(File* __File__, void* __Buf__, long __Len__)
             PosixProc* Pr = (PosixProc*)Pn->Priv;
             if (Probe_IF_Error(Pr) || !Pr)
             {
+                PushError("ProcRead",
+                          LOGPROCFSC_PError,
+                          "Dangling PosixProc in reading 'status' ProcFS entry",
+                          -BadEntity);
                 return -BadEntity;
             }
             return ProcFsMakeStatus(Pr, Buf, Cap);
@@ -242,6 +318,10 @@ ProcRead(File* __File__, void* __Buf__, long __Len__)
             PosixProc* Pr = (PosixProc*)Pn->Priv;
             if (Probe_IF_Error(Pr) || !Pr)
             {
+                PushError("ProcRead",
+                          LOGPROCFSC_PError,
+                          "Dangling PosixProc in reading 'fds' ProcFS entry",
+                          -BadEntity);
                 return -BadEntity;
             }
             return ProcFsListFds(Pr, Buf, Cap);
@@ -252,6 +332,10 @@ ProcRead(File* __File__, void* __Buf__, long __Len__)
             PosixProc* Pr = (PosixProc*)Pn->Priv;
             if (Probe_IF_Error(Pr) || !Pr)
             {
+                PushError("ProcRead",
+                          LOGPROCFSC_PError,
+                          "Dangling PosixProc in reading 'cwd' ProcFS entry",
+                          -BadEntity);
                 return -BadEntity;
             }
             strcpy(Buf, Pr->Cwd, (uint32_t)Cap);
@@ -263,6 +347,10 @@ ProcRead(File* __File__, void* __Buf__, long __Len__)
             PosixProc* Pr = (PosixProc*)Pn->Priv;
             if (Probe_IF_Error(Pr) || !Pr)
             {
+                PushError("ProcRead",
+                          LOGPROCFSC_PError,
+                          "Dangling PosixProc in reading 'root' ProcFS entry",
+                          -BadEntity);
                 return -BadEntity;
             }
             strcpy(Buf, Pr->Root, (uint32_t)Cap);
@@ -274,6 +362,7 @@ ProcRead(File* __File__, void* __Buf__, long __Len__)
             PosixProc* Pr = (PosixProc*)Pn->Priv;
             if (Probe_IF_Error(Pr) || !Pr || Pr->CmdlineLen <= 0)
             {
+                LOGPROCFSC_PWarn("No cmdline in reading 'cmdline' ProcFS entry");
                 ((char*)__Buf__)[0] = '\0';
                 return Nothing;
             }
@@ -286,6 +375,7 @@ ProcRead(File* __File__, void* __Buf__, long __Len__)
             PosixProc* Pr = (PosixProc*)Pn->Priv;
             if (Probe_IF_Error(Pr) || !Pr || Pr->EnvironLen <= 0)
             {
+                LOGPROCFSC_PWarn("No environ in reading 'environ' ProcFS entry");
                 ((char*)__Buf__)[0] = '\0';
                 return Nothing;
             }
@@ -294,9 +384,11 @@ ProcRead(File* __File__, void* __Buf__, long __Len__)
             return C;
         }
 
+        LOGPROCFSC_PWarn("Unknown file '%s' in ProcFS read", Nm);
         return Nothing;
     }
 
+    LOGPROCFSC_PWarn("Unknown ProcFS node kind in ProcRead");
     return Nothing;
 }
 
@@ -306,16 +398,20 @@ ProcWrite(File* __File__, const void* __Buf__, long __Len__)
     if (Probe_IF_Error(__File__) || !__File__ || Probe_IF_Error(__Buf__) || !__Buf__ ||
         __Len__ <= 0)
     {
-        return -BadArgs;
+        PushError("ProcWrite", LOGPROCFSC_PError, "Bad args to ProcWrite", -BadArguments);
+        return -BadArguments;
     }
     Vnode* Node = __File__->Node;
     if (Probe_IF_Error(Node) || !Node)
     {
+        PushError("ProcWrite", LOGPROCFSC_PError, "Dangling node in ProcWrite", -Dangling);
         return -Dangling;
     }
     ProcFsNode* Pn = (ProcFsNode*)Node->Priv;
     if (Probe_IF_Error(Pn) || !Pn || Pn->Kind != ProcFsNodeFile)
     {
+        PushError(
+            "ProcWrite", LOGPROCFSC_PError, "Dangling or bad ProcFsNode in ProcWrite", -BadEntity);
         return -BadEntity;
     }
 
@@ -327,6 +423,10 @@ ProcWrite(File* __File__, const void* __Buf__, long __Len__)
         PosixProc* Pr = (PosixProc*)Pn->Priv;
         if (Probe_IF_Error(Pr) || !Pr)
         {
+            PushError("ProcWrite",
+                      LOGPROCFSC_PError,
+                      "Dangling PosixProc in writing 'state' ProcFS entry",
+                      -BadEntity);
             return -BadEntity;
         }
         return ProcFsWriteState(Pr, Src, __Len__);
@@ -336,6 +436,10 @@ ProcWrite(File* __File__, const void* __Buf__, long __Len__)
         PosixProc* Pr = (PosixProc*)Pn->Priv;
         if (Probe_IF_Error(Pr) || !Pr)
         {
+            PushError("ProcWrite",
+                      LOGPROCFSC_PError,
+                      "Dangling PosixProc in writing 'exec' ProcFS entry",
+                      -BadEntity);
             return -BadEntity;
         }
         return ProcFsWriteExec(Pr, Src, __Len__);
@@ -345,12 +449,17 @@ ProcWrite(File* __File__, const void* __Buf__, long __Len__)
         PosixProc* Pr = (PosixProc*)Pn->Priv;
         if (Probe_IF_Error(Pr) || !Pr)
         {
+            PushError("ProcWrite",
+                      LOGPROCFSC_PError,
+                      "Dangling PosixProc in writing 'signal' ProcFS entry",
+                      -BadEntity);
             return -BadEntity;
         }
         return ProcFsWriteSignal(Pr, Src, __Len__);
     }
 
-    return -NoWrite;
+    PushError("ProcWrite", LOGPROCFSC_PError, "Unknown ProcFS file in ProcWrite", -BadWrite);
+    return -BadWrite;
 }
 
 long
@@ -358,7 +467,8 @@ ProcLseek(File* __File__, long __Off__, int __Wh__)
 {
     if (Probe_IF_Error(__File__) || !__File__)
     {
-        return -BadArgs;
+        PushError("ProcLseek", LOGPROCFSC_PError, "Bad args to ProcLseek", -BadArguments);
+        return -BadArguments;
     }
     __File__->Offset = __Off__;
     return __Off__;
@@ -367,6 +477,7 @@ ProcLseek(File* __File__, long __Off__, int __Wh__)
 int
 ProcIoctl(File* __File__, unsigned long __Cmd__, void* __Arg__)
 {
+    PushError("ProcIoctl", LOGPROCFSC_PError, "Impilictly unimplemented ProcIoctl", -Impilict);
     return -Impilict;
 }
 
@@ -375,11 +486,13 @@ ProcStat(Vnode* __Node__, VfsStat* __Out__)
 {
     if (Probe_IF_Error(__Node__) || !__Node__ || Probe_IF_Error(__Out__) || !__Out__)
     {
-        return -BadArgs;
+        PushError("ProcStat", LOGPROCFSC_PError, "Bad args to ProcStat", -BadArguments);
+        return -BadArguments;
     }
     ProcFsNode* Pn = (ProcFsNode*)__Node__->Priv;
     if (Probe_IF_Error(Pn) || !Pn)
     {
+        PushError("ProcStat", LOGPROCFSC_PError, "Dangling ProcFsNode in ProcStat", -Dangling);
         return -Dangling;
     }
 
@@ -421,6 +534,7 @@ __GetCursor__(Vnode* __Node__)
             return &__ProcDirCursors__[J];
         }
     }
+    PushError("__GetCursor__", LOGPROCFSC_PError, "No available cursor in __GetCursor__", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }
 
@@ -448,7 +562,8 @@ ProcReaddir(Vnode* __Node__, void* __Buf__, long __Len__)
 {
     if (Probe_IF_Error(__Node__) || !__Node__ || Probe_IF_Error(__Buf__) || !__Buf__)
     {
-        return -BadArgs;
+        PushError("ProcReaddir", LOGPROCFSC_PError, "Bad args to ProcReaddir", -BadArguments);
+        return -BadArguments;
     }
 
     SysErr  err;
@@ -457,12 +572,20 @@ ProcReaddir(Vnode* __Node__, void* __Buf__, long __Len__)
     ProcFsNode* Pn = (ProcFsNode*)__Node__->Priv;
     if (Probe_IF_Error(Pn) || !Pn || Pn->Kind != ProcFsNodeDir)
     {
+        PushError("ProcReaddir",
+                  LOGPROCFSC_PError,
+                  "Dangling or bad ProcFsNode in ProcReaddir",
+                  -BadEntity);
         return BadEntity;
     }
 
     ProcDirCursorEntry* Cur = __GetCursor__(__Node__);
     if (Probe_IF_Error(Cur) || !Cur)
     {
+        PushError("ProcReaddir",
+                  LOGPROCFSC_PError,
+                  "No available cursor in ProcReaddir",
+                  Pointer_TO_Error(Cur));
         return -NoSuch;
     }
 
@@ -551,6 +674,7 @@ ProcReaddir(Vnode* __Node__, void* __Buf__, long __Len__)
             }
         }
         __ResetCursor__(Cur);
+        LOGPROCFSC_PWarn("No more entries in ProcReaddir for root ProcFS dir");
         return Nothing;
     }
     else
@@ -559,6 +683,7 @@ ProcReaddir(Vnode* __Node__, void* __Buf__, long __Len__)
         if (Probe_IF_Error(Pr) || !Pr)
         {
             __ResetCursor__(Cur);
+            LOGPROCFSC_PWarn("Dangling PosixProc in ProcReaddir for PID %s", Pn->Name);
             return Nothing;
         }
 
@@ -646,6 +771,7 @@ ProcReaddir(Vnode* __Node__, void* __Buf__, long __Len__)
         }
 
         __ResetCursor__(Cur);
+        LOGPROCFSC_PWarn("No more entries in ProcReaddir for PID %s", Pn->Name);
         return Nothing;
     }
 }
@@ -655,11 +781,16 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
 {
     if (Probe_IF_Error(__Dir__) || !__Dir__ || Probe_IF_Error(__Name__) || !__Name__)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("ProcLookup", LOGPROCFSC_PError, "Bad args to ProcLookup", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
     ProcFsNode* Pn = (ProcFsNode*)__Dir__->Priv;
     if (Probe_IF_Error(Pn) || !Pn || Pn->Kind != ProcFsNodeDir)
     {
+        PushError("ProcLookup",
+                  LOGPROCFSC_PError,
+                  "Dangling or bad ProcFsNode in ProcLookup",
+                  -BadEntity);
         return Error_TO_Pointer(-BadEntity);
     }
 
@@ -673,7 +804,11 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
             ProcFsNode* F = (ProcFsNode*)KMalloc(sizeof(ProcFsNode));
             if (Probe_IF_Error(F) || !F)
             {
-                return Error_TO_Pointer(-BadAlloc);
+                PushError("ProcLookup",
+                          LOGPROCFSC_PError,
+                          "Failed to allocate ProcFsNode in ProcLookup for 'uptime'",
+                          Pointer_TO_Error(F));
+                return Error_TO_Pointer(-BadAllocation);
             }
             memset(F, 0, sizeof(*F));
             F->Kind      = ProcFsNodeFile;
@@ -684,7 +819,11 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
             Vnode* N = (Vnode*)KMalloc(sizeof(Vnode));
             if (Probe_IF_Error(N) || !N)
             {
-                return Error_TO_Pointer(-BadAlloc);
+                PushError("ProcLookup",
+                          LOGPROCFSC_PError,
+                          "Failed to allocate Vnode in ProcLookup for 'uptime'",
+                          Pointer_TO_Error(N));
+                return Error_TO_Pointer(-BadAllocation);
             }
             memset(N, 0, sizeof(*N));
             N->Type   = VNodeFILE;
@@ -700,7 +839,11 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
             ProcFsNode* F = (ProcFsNode*)KMalloc(sizeof(ProcFsNode));
             if (Probe_IF_Error(F) || !F)
             {
-                return Error_TO_Pointer(-BadAlloc);
+                PushError("ProcLookup",
+                          LOGPROCFSC_PError,
+                          "Failed to allocate ProcFsNode in ProcLookup for 'self'",
+                          Pointer_TO_Error(F));
+                return Error_TO_Pointer(-BadAllocation);
             }
             memset(F, 0, sizeof(*F));
             F->Kind      = ProcFsNodeFile;
@@ -711,7 +854,11 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
             Vnode* N = (Vnode*)KMalloc(sizeof(Vnode));
             if (Probe_IF_Error(N) || !N)
             {
-                return Error_TO_Pointer(-BadAlloc);
+                PushError("ProcLookup",
+                          LOGPROCFSC_PError,
+                          "Failed to allocate Vnode in ProcLookup for 'self'",
+                          Pointer_TO_Error(N));
+                return Error_TO_Pointer(-BadAllocation);
             }
             memset(N, 0, sizeof(*N));
             N->Type   = VNodeFILE;
@@ -733,7 +880,11 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
                 Vnode* N = (Vnode*)KMalloc(sizeof(Vnode));
                 if (Probe_IF_Error(N) || !N)
                 {
-                    return Error_TO_Pointer(-BadAlloc);
+                    PushError("ProcLookup",
+                              LOGPROCFSC_PError,
+                              "Failed to allocate Vnode in ProcLookup for PID dir",
+                              Pointer_TO_Error(N));
+                    return Error_TO_Pointer(-BadAllocation);
                 }
                 memset(N, 0, sizeof(*N));
                 N->Type   = VNodeDIR;
@@ -759,7 +910,11 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
                 ProcFsNode* D = (ProcFsNode*)KMalloc(sizeof(ProcFsNode));
                 if (Probe_IF_Error(D) || !D)
                 {
-                    return Error_TO_Pointer(-BadAlloc);
+                    PushError("ProcLookup",
+                              LOGPROCFSC_PError,
+                              "Failed to allocate ProcFsNode in ProcLookup for PID dir",
+                              Pointer_TO_Error(D));
+                    return Error_TO_Pointer(-BadAllocation);
                 }
                 memset(D, 0, sizeof(*D));
                 D->Kind = ProcFsNodeDir;
@@ -767,7 +922,11 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
                 if (Probe_IF_Error(D->Name) || !D->Name)
                 {
                     KFree(D, Error);
-                    return Error_TO_Pointer(-BadAlloc);
+                    PushError("ProcLookup",
+                              LOGPROCFSC_PError,
+                              "Failed to allocate ProcFsNode name in ProcLookup for PID dir",
+                              Pointer_TO_Error(D->Name));
+                    return Error_TO_Pointer(-BadAllocation);
                 }
                 strcpy(D->Name, Num, 32);
                 D->Ino = Pn->Ino + 100 + (long)Pr->Pid;
@@ -780,7 +939,11 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
                 {
                     KFree(D->Name, Error);
                     KFree(D, Error);
-                    return Error_TO_Pointer(-BadAlloc);
+                    PushError("ProcLookup",
+                              LOGPROCFSC_PError,
+                              "Failed to allocate Vnode in ProcLookup for PID dir",
+                              Pointer_TO_Error(N));
+                    return Error_TO_Pointer(-BadAllocation);
                 }
                 memset(N, 0, sizeof(*N));
                 N->Type   = VNodeDIR;
@@ -791,6 +954,7 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
                 return N;
             }
         }
+        PushError("ProcLookup", LOGPROCFSC_PError, "No such PID dir in ProcLookup", -NoSuch);
         return Error_TO_Pointer(-NoSuch);
     }
     else
@@ -798,6 +962,8 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
         PosixProc* Pr = (PosixProc*)Pn->Priv;
         if (Probe_IF_Error(Pr) || !Pr)
         {
+            PushError(
+                "ProcLookup", LOGPROCFSC_PError, "Dangling PosixProc in ProcLookup", -Dangling);
             return Error_TO_Pointer(-Dangling);
         }
 
@@ -818,6 +984,10 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
                 ProcFsNode* F = (ProcFsNode*)KMalloc(sizeof(ProcFsNode));
                 if (Probe_IF_Error(F) || !F)
                 {
+                    PushError("ProcLookup",
+                              LOGPROCFSC_PError,
+                              "Failed to allocate ProcFsNode in ProcLookup for file",
+                              Pointer_TO_Error(F));
                     return Error_TO_Pointer(-NoSuch);
                 }
                 memset(F, 0, sizeof(*F));
@@ -843,6 +1013,10 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
                         KFree(F->Name, Error);
                     }
                     KFree(F, Error);
+                    PushError("ProcLookup",
+                              LOGPROCFSC_PError,
+                              "Failed to allocate Vnode in ProcLookup for file",
+                              Pointer_TO_Error(N));
                     return Error_TO_Pointer(-NoSuch);
                 }
                 memset(N, 0, sizeof(*N));
@@ -854,6 +1028,7 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
                 return N;
             }
         }
+        PushError("ProcLookup", LOGPROCFSC_PError, "No such file in ProcLookup", -NoSuch);
         return Error_TO_Pointer(-NoSuch);
     }
 }
@@ -861,42 +1036,50 @@ ProcLookup(Vnode* __Dir__, const char* __Name__)
 int
 ProcCreate(Vnode* __Dir__, const char* __Name__, long __Flags__, VfsPerm __Perm__)
 {
+    PushError("ProcCreate", LOGPROCFSC_PError, "Impilictly unimplemented ProcCreate", -Impilict);
     return -Impilict;
 }
 
 int
 ProcUnlink(Vnode* __Dir__, const char* __Name__)
 {
+    PushError("ProcUnlink", LOGPROCFSC_PError, "Impilictly unimplemented ProcUnlink", -Impilict);
     return -Impilict;
 }
 
 int
 ProcMkdir(Vnode* __Dir__, const char* __Name__, VfsPerm __Perm__)
 {
+    PushError("ProcMkdir", LOGPROCFSC_PError, "Impilictly unimplemented ProcMkdir", -Impilict);
     return -Impilict;
 }
 
 int
 ProcRmdir(Vnode* __Dir__, const char* __Name__)
 {
+    PushError("ProcRmdir", LOGPROCFSC_PError, "Impilictly unimplemented ProcRmdir", -Impilict);
     return -Impilict;
 }
 
 int
 ProcSymlink(Vnode* __Dir__, const char* __Name__, const char* __Target__, VfsPerm __Perm__)
 {
+    PushError("ProcSymlink", LOGPROCFSC_PError, "Impilictly unimplemented ProcSymlink", -Impilict);
     return -Impilict;
 }
 
 int
 ProcReadlink(Vnode* __Node__, VfsNameBuf* __Buf__)
 {
+    PushError(
+        "ProcReadlink", LOGPROCFSC_PError, "Impilictly unimplemented ProcReadlink", -Impilict);
     return -Impilict;
 }
 
 int
 ProcLink(Vnode* __Dir__, Vnode* __Node__, const char* __Name__)
 {
+    PushError("ProcLink", LOGPROCFSC_PError, "Impilictly unimplemented ProcLink", -Impilict);
     return -Impilict;
 }
 
@@ -907,24 +1090,29 @@ ProcRename(Vnode*      __FromDir__,
            const char* __ToName__,
            long        __Flags__)
 {
+    PushError("ProcRename", LOGPROCFSC_PError, "Impilictly unimplemented ProcRename", -Impilict);
     return -Impilict;
 }
 
 int
 ProcChmod(Vnode* __Node__, long __Mode__)
 {
+    PushError("ProcChmod", LOGPROCFSC_PError, "Impilictly unimplemented ProcChmod", -Impilict);
     return -Impilict;
 }
 
 int
 ProcChown(Vnode* __Node__, long __Uid__, long __Gid__)
 {
+    PushError("ProcChown", LOGPROCFSC_PError, "Impilictly unimplemented ProcChown", -Impilict);
     return -Impilict;
 }
 
 int
 ProcTruncate(Vnode* __Node__, long __Len__)
 {
+    PushError(
+        "ProcTruncate", LOGPROCFSC_PError, "Impilictly unimplemented ProcTruncate", -Impilict);
     return -Impilict;
 }
 
@@ -937,6 +1125,7 @@ ProcSync(Vnode* __Node__)
 int
 ProcMap(Vnode* __Node__, void** __Out__, long __Len__, long __Flags__)
 {
+    PushError("ProcMap", LOGPROCFSC_PError, "Impilictly unimplemented ProcMap", -Impilict);
     return -Impilict;
 }
 
@@ -949,6 +1138,8 @@ ProcUnmap(Vnode* __Node__, void* __Addr__, long __Len__)
 int
 ProcSuperSync(Superblock* __Sb__)
 {
+    PushError(
+        "ProcSuperSync", LOGPROCFSC_PError, "Impilictly unimplemented ProcSuperSync", -Impilict);
     return SysOkay;
 }
 
@@ -957,7 +1148,11 @@ ProcSuperStatFs(Superblock* __Sb__, VfsStatFs* __Out__)
 {
     if (Probe_IF_Error(__Sb__) || !__Sb__ || Probe_IF_Error(__Out__) || !__Out__)
     {
-        return -BadArgs;
+        PushError("ProcSuperStatFs",
+                  LOGPROCFSC_PError,
+                  "Bad pointer(s) in ProcSuperStatFs",
+                  -BadArguments);
+        return -BadArguments;
     }
     __Out__->TypeId  = 0xDEAD7001;
     __Out__->Bsize   = 1;
@@ -974,6 +1169,7 @@ ProcSuperStatFs(Superblock* __Sb__, VfsStatFs* __Out__)
 void
 ProcSuperRelease(Superblock* __Sb__, SysErr* __Err__)
 {
+    /*Void*/
 }
 
 int
@@ -997,22 +1193,33 @@ ProcFsInit(void)
     ProcPriv = (ProcFsPriv*)KMalloc(sizeof(ProcFsPriv));
     if (Probe_IF_Error(ProcPriv) || !ProcPriv)
     {
-        return -BadAlloc;
+        PushError("ProcFsInit",
+                  LOGPROCFSC_PError,
+                  "Failed to allocate ProcPriv in ProcFsInit",
+                  Pointer_TO_Error(ProcPriv));
+        return -BadAllocation;
     }
     SysErr  err;
     SysErr* Error = &err;
 
     memset(ProcPriv, 0, sizeof(*ProcPriv));
-
     memset(__ProcPidCache__, 0, sizeof(__ProcPidCache__));
 
     Superblock* Sb = ProcFsMountImpl(NULL, NULL);
     if (Probe_IF_Error(Sb) || !Sb)
     {
+        PushError("ProcFsInit",
+                  LOGPROCFSC_PError,
+                  "Failed to mount ProcFS in ProcFsInit",
+                  Pointer_TO_Error(Sb));
         return -Dangling;
     }
     if (ProcFsRegisterMount("/proc", Sb) != SysOkay)
     {
+        PushError("ProcFsInit",
+                  LOGPROCFSC_PError,
+                  "Failed to register /proc mountpoint in ProcFsInit",
+                  -NotRooted);
         return -NotRooted;
     }
     return SysOkay;
@@ -1024,7 +1231,11 @@ ProcFsMountImpl(const char* __Dev__, const char* __Opts__)
     ProcSuper = (Superblock*)KMalloc(sizeof(Superblock));
     if (Probe_IF_Error(ProcSuper) || !ProcSuper)
     {
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("ProcFsMountImpl",
+                  LOGPROCFSC_PError,
+                  "Failed to allocate Superblock in ProcFsMountImpl",
+                  Pointer_TO_Error(ProcSuper));
+        return Error_TO_Pointer(-BadAllocation);
     }
     memset(ProcSuper, 0, sizeof(*ProcSuper));
     ProcSuper->Type  = NULL;
@@ -1035,7 +1246,11 @@ ProcFsMountImpl(const char* __Dev__, const char* __Opts__)
     ProcFsNode* Root = (ProcFsNode*)KMalloc(sizeof(ProcFsNode));
     if (Probe_IF_Error(Root) || !Root)
     {
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("ProcFsMountImpl",
+                  LOGPROCFSC_PError,
+                  "Failed to allocate ProcFsNode for root in ProcFsMountImpl",
+                  Pointer_TO_Error(Root));
+        return Error_TO_Pointer(-BadAllocation);
     }
     memset(Root, 0, sizeof(*Root));
     Root->Kind      = ProcFsNodeDir;
@@ -1046,7 +1261,11 @@ ProcFsMountImpl(const char* __Dev__, const char* __Opts__)
     Vnode* RootV = (Vnode*)KMalloc(sizeof(Vnode));
     if (Probe_IF_Error(RootV) || !RootV)
     {
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("ProcFsMountImpl",
+                  LOGPROCFSC_PError,
+                  "Failed to allocate Vnode for root in ProcFsMountImpl",
+                  Pointer_TO_Error(RootV));
+        return Error_TO_Pointer(-BadAllocation);
     }
     memset(RootV, 0, sizeof(*RootV));
     RootV->Type   = VNodeDIR;

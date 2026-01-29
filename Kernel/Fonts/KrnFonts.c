@@ -1,4 +1,50 @@
 #include <KrnFont.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGKRNFONTSC_Debug
+#    define LOGKRNFONTSC_PDebug(fmt, ...) PDebug("[KERNEL>>KrnFonts.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKRNFONTSC_PDebug(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGKRNFONTSC_Logs
+#    define LOGKRNFONTSC_PError(fmt, ...) PError("[KERNEL>>KrnFonts.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKRNFONTSC_PError(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGKRNFONTSC_Logs
+#    define LOGKRNFONTSC_PWarn(fmt, ...) PWarn("[KERNEL>>KrnFonts.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKRNFONTSC_PWarn(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGKRNFONTSC_Logs
+#    define LOGKRNFONTSC_PInfo(fmt, ...) PInfo("[KERNEL>>KrnFonts.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKRNFONTSC_PInfo(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGKRNFONTSC_Logs
+#    define LOGKRNFONTSC_PSuccess(fmt, ...) PSuccess("[KERNEL>>KrnFonts.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGKRNFONTSC_PSuccess(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 void
 DisplayChar(uint32_t* __FrameBuffer__,
@@ -21,7 +67,8 @@ DisplayChar(uint32_t* __FrameBuffer__,
         {
             /* Check if bit is set (MSB is leftmost pixel) */
 
-            if (Line & (0x80 >> Column))            {
+            if (Line & (0x80 >> Column))
+            {
                 /* Calculate framebuffer offset and set pixel */
                 __FrameBuffer__[(__PosY__ + MapRow) * __FrameBufferW__ + (__PosX__ + Column)] =
                     __32bitColor__;

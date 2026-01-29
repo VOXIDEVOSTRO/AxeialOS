@@ -39,6 +39,9 @@ typedef struct
 } VirtualMemoryManager;
 
 extern VirtualMemoryManager Vmm;
+/*pages*/
+extern _Atomic uint64_t BspKernelCr3;
+void                    PublishBspKernelCr3(void);
 
 void                InitializeVmm(SysErr* __Err__);
 VirtualMemorySpace* CreateVirtualSpace(void);

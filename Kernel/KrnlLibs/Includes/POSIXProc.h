@@ -100,8 +100,11 @@ int        PosixFchdir(PosixProc* __Proc__, int __Fd__);
 int        PosixSetUmask(PosixProc* __Proc__, long __Mask__);
 int        PosixGetTty(PosixProc* __Proc__, char* __Out__, long __Len__);
 PosixProc* PosixFind(long __Pid__);
+void       HandleCOW(uint64_t __FaultVirt__, int ErrCode, SysErr* __Err__);
+
 /*Global Helpers*/
 char __ProcStateCode__(PosixProc* __Proc__);
+int  __CopyFromUser__(char* __KrnBuf__, const char* __UserPtr__, size_t __MAX__);
 
 KEXPORT(PosixProcCreate)
 KEXPORT(PosixProcExecve)

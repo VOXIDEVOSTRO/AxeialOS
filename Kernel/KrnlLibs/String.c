@@ -1,4 +1,5 @@
 #include <AllTypes.h>
+#include <__AXEKCONF__.h>
 
 /*Strcpy*/
 void

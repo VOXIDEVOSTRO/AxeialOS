@@ -1,6 +1,52 @@
 #include <Errnos.h>
 #include <SMP.h>
 #include <Sync.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGSEMAPHORESC_Debug
+#    define LOGSEMAPHORESC_PDebug(fmt, ...) PDebug("[KERNEL>>SemaPhores.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSEMAPHORESC_PDebug(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSEMAPHORESC_Logs
+#    define LOGSEMAPHORESC_PError(fmt, ...) PError("[KERNEL>>SemaPhores.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSEMAPHORESC_PError(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSEMAPHORESC_Logs
+#    define LOGSEMAPHORESC_PWarn(fmt, ...) PWarn("[KERNEL>>SemaPhores.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSEMAPHORESC_PWarn(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSEMAPHORESC_Logs
+#    define LOGSEMAPHORESC_PInfo(fmt, ...) PInfo("[KERNEL>>SemaPhores.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSEMAPHORESC_PInfo(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSEMAPHORESC_Logs
+#    define LOGSEMAPHORESC_PSuccess(fmt, ...) PSuccess("[KERNEL>>SemaPhores.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSEMAPHORESC_PSuccess(fmt, ...)                                                      \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 void
 InitializeSemaphore(Semaphore*  __Semaphore__,

@@ -105,7 +105,7 @@ close(int __fd__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 off_t
@@ -143,7 +143,13 @@ fstat(int __fd__ __attribute__((unused)), struct stat* __st__)
     __st__->st_blksize = (__kst__.BlkSize);
     __st__->st_size    = (__kst__.Size);
     */
-    return 0;
+    return SysOkay;
+}
+
+int
+_fsync(int fd)
+{
+    return SysOkay;
 }
 
 int
@@ -154,7 +160,7 @@ isatty(int __fd__)
         return 1;
     }
     errno = ENOTTY;
-    return 0;
+    return SysOkay;
 }
 
 void
@@ -175,7 +181,7 @@ kill(pid_t __pid__, int __sig__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 pid_t
@@ -199,7 +205,7 @@ unlink(const char* __path__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -211,7 +217,7 @@ rename(const char* __old__, const char* __new__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -223,7 +229,7 @@ mkdir(const char* __path__, mode_t __mode__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -235,7 +241,7 @@ rmdir(const char* __path__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -247,7 +253,7 @@ gettimeofday(struct timeval* __tv__, void* __tz__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -259,7 +265,7 @@ nanosleep(const struct timespec* __req__, struct timespec* __rem__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -271,7 +277,7 @@ access(const char* __path__, int __mode__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -283,7 +289,7 @@ chdir(const char* __path__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 char*
@@ -399,7 +405,7 @@ execve(const char* __path__, char* const __argv__, char* const __envp__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 pid_t
@@ -434,7 +440,7 @@ pipe(int __pipefd__[2])
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -451,7 +457,7 @@ uname(struct utsname* __buf__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 void*
@@ -482,7 +488,7 @@ munmap(void* __addr__, size_t __len__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -494,7 +500,7 @@ brk(void* __new_end__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 int
@@ -511,7 +517,7 @@ stat(const char* __path__, struct stat* __st__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 clock_t
@@ -545,7 +551,7 @@ clock_gettime(clockid_t __clk_id__, struct timespec* __tp__)
         errno = (int)(-r);
         return -BadSystemcall;
     }
-    return 0;
+    return SysOkay;
 }
 
 pid_t

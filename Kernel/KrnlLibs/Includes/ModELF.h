@@ -124,6 +124,5 @@ typedef struct ModImage
 #define ELF64_R_SYM(I)  ((I) >> 32)
 #define ELF64_R_TYPE(I) ((uint32_t)(I))
 
-int  InstallModule(const char* __Path__);
-int  UnInstallModule(const char* __Path__);
-void InitRamDiskDevDrvs(SysErr* __Err__);
+int InstallModule(const char* __Path__);
+int UnInstallModule(const char* __Path__);

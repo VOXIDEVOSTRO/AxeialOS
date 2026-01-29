@@ -1,6 +1,52 @@
 #include <Errnos.h>
 #include <SMP.h>
 #include <Sync.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGSPINLOCKSC_Debug
+#    define LOGSPINLOCKSC_PDebug(fmt, ...) PDebug("[KERNEL>>Spinlocks.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSPINLOCKSC_PDebug(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSPINLOCKSC_Logs
+#    define LOGSPINLOCKSC_PError(fmt, ...) PError("[KERNEL>>Spinlocks.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSPINLOCKSC_PError(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSPINLOCKSC_Logs
+#    define LOGSPINLOCKSC_PWarn(fmt, ...) PWarn("[KERNEL>>Spinlocks.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSPINLOCKSC_PWarn(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSPINLOCKSC_Logs
+#    define LOGSPINLOCKSC_PInfo(fmt, ...) PInfo("[KERNEL>>Spinlocks.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSPINLOCKSC_PInfo(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSPINLOCKSC_Logs
+#    define LOGSPINLOCKSC_PSuccess(fmt, ...) PSuccess("[KERNEL>>Spinlocks.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSPINLOCKSC_PSuccess(fmt, ...)                                                       \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 SpinLock        ConsoleLock;
 static uint64_t SavedFlags[MaxCPUs];

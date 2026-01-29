@@ -109,15 +109,44 @@ void PciReadBars(PciDevice* __Device__, SysErr* __Err__);
 void PciReadCapabilities(PciDevice* __Device__, SysErr* __Err__);
 uint8_t PciFindCapability(PciDevice* __Device__, uint8_t __CapId__);
 
-/*drivers may use it*/
+/* core init */
 KEXPORT(InitializePciBus);
+KEXPORT(PciScanBus);
+
+/* config space access */
+KEXPORT(PciConfigRead32);
+KEXPORT(PciConfigRead16);
+KEXPORT(PciConfigRead8);
+KEXPORT(PciConfigWrite32);
+KEXPORT(PciConfigWrite16);
+KEXPORT(PciConfigWrite8);
+
+/* device discovery */
 KEXPORT(PciFindDevice);
 KEXPORT(PciGetDevice);
 KEXPORT(PciFindByClass);
+
+/* feature toggles */
 KEXPORT(PciEnableBusMastering);
+KEXPORT(PciDisableBusMastering);
 KEXPORT(PciEnableMemorySpace);
 KEXPORT(PciEnableIoSpace);
 KEXPORT(PciEnableMsi);
+KEXPORT(PciDisableMsi);
+
+/* BAR helpers */
 KEXPORT(PciGetBarAddress);
 KEXPORT(PciGetBarSize);
 KEXPORT(PciGetBarType);
+
+/* dumpers */
+KEXPORT(PciDumpDevice);
+KEXPORT(PciDumpAllDevices);
+
+/* helpers */
+KEXPORT(PciMakeAddress);
+KEXPORT(PciProbeFunction);
+KEXPORT(PciAddDevice);
+KEXPORT(PciReadBars);
+KEXPORT(PciReadCapabilities);
+KEXPORT(PciFindCapability);

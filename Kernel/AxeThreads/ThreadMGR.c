@@ -6,11 +6,56 @@
 #include <Sync.h>
 #include <Timer.h>
 #include <VMM.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGTHREADMGRC_Debug
+#    define LOGTHREADMGRC_PDebug(fmt, ...) PDebug("[KERNEL>>ThreadMGR.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGTHREADMGRC_PDebug(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGTHREADMGRC_Logs
+#    define LOGTHREADMGRC_PError(fmt, ...) PError("[KERNEL>>ThreadMGR.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGTHREADMGRC_PError(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGTHREADMGRC_Logs
+#    define LOGTHREADMGRC_PWarn(fmt, ...) PWarn("[KERNEL>>ThreadMGR.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGTHREADMGRC_PWarn(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGTHREADMGRC_Logs
+#    define LOGTHREADMGRC_PInfo(fmt, ...) PInfo("[KERNEL>>ThreadMGR.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGTHREADMGRC_PInfo(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGTHREADMGRC_Logs
+#    define LOGTHREADMGRC_PSuccess(fmt, ...) PSuccess("[KERNEL>>ThreadMGR.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGTHREADMGRC_PSuccess(fmt, ...)                                                       \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 uint32_t NextThreadId = 1;
 Thread*  ThreadList   = NULL;
 Thread*  CurrentThreads[MaxCPUs];
-Thread*  IdleThread;
 SpinLock ThreadListLock;
 
 static inline uint32_t
@@ -76,16 +121,6 @@ SchedulerPrioToThreadPriority(uint32_t __Prio__)
     return ThreadPriorityIdle;
 }
 
-/*Idle worker*/
-static void
-Idler(void* __Arg__ _unused)
-{
-    for (;;)
-    {
-        __asm__ volatile("hlt" ::: "memory");
-    }
-}
-
 void
 InitializeThreadManager(SysErr* __Err__)
 {
@@ -97,20 +132,7 @@ InitializeThreadManager(SysErr* __Err__)
         __atomic_store_n(&CurrentThreads[CpuIndex], (Thread*)NULL, __ATOMIC_SEQ_CST);
     }
 
-    SysErr  err;
-    SysErr* Error = &err;
-
-    IdleThread = CreateThread(ThreadTypeKernel, Idler, NULL, ThreadPriorityIdle);
-
-    if (Probe_IF_Error(IdleThread))
-    {
-        SlotError(__Err__, -BadAlloc);
-        return;
-    }
-
-    __atomic_store_n(&IdleThread->State, ThreadStateBlocked, __ATOMIC_SEQ_CST);
-
-    PSuccess("Thread Manager initialized\n");
+    LOGTHREADMGRC_PSuccess("Thread Manager initialized\n");
 }
 
 uint32_t
@@ -124,6 +146,7 @@ GetCurrentThread(uint32_t __CpuId__)
 {
     if (__CpuId__ >= MaxCPUs)
     {
+        PushError("GetCurrentThread", LOGTHREADMGRC_PError, "cpuid not in range", -Limits);
         return Error_TO_Pointer(-Limits);
     }
 
@@ -137,6 +160,7 @@ SetCurrentThread(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Err__ _unu
     if (__CpuId__ >= MaxCPUs)
     {
         SlotError(__Err__, -Limits);
+        PushError("SetCurrentThread", LOGTHREADMGRC_PError, "cpuid not in range", -Limits);
         return;
     }
 
@@ -154,7 +178,11 @@ CreateThread(ThreadType     __Type__,
     Thread* NewThread = (Thread*)KMalloc(sizeof(Thread));
     if (Probe_IF_Error(NewThread) || !NewThread)
     {
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("CreateThread",
+                  LOGTHREADMGRC_PError,
+                  "Failed to allocate memory for thread control block",
+                  Pointer_TO_Error(NewThread));
+        return Error_TO_Pointer(-BadAllocation);
     }
 
     for (size_t Index = 0; Index < sizeof(Thread); Index++)
@@ -164,7 +192,7 @@ CreateThread(ThreadType     __Type__,
 
     __atomic_store_n(&NewThread->ThreadId, AllocateThreadId(), __ATOMIC_SEQ_CST);
 
-    __atomic_store_n(&NewThread->ProcessId, 1u, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&NewThread->ProcessId, 0u, __ATOMIC_SEQ_CST);
     __atomic_store_n(&NewThread->State, ThreadStateReady, __ATOMIC_SEQ_CST);
     __atomic_store_n(&NewThread->Type, __Type__, __ATOMIC_SEQ_CST);
     __atomic_store_n(&NewThread->Priority, __Priority__, __ATOMIC_SEQ_CST);
@@ -177,7 +205,11 @@ CreateThread(ThreadType     __Type__,
         if (Probe_IF_Error(KernelStackBase) || !KernelStackBase)
         {
             KFree(NewThread, Error);
-            return Error_TO_Pointer(-BadAlloc);
+            PushError("CreateThread",
+                      LOGTHREADMGRC_PError,
+                      "Failed to allocate memory for thread kernel stack",
+                      Pointer_TO_Error(KernelStackBase));
+            return Error_TO_Pointer(-BadAllocation);
         }
         __atomic_store_n(
             &NewThread->KernelStack, (uint64_t)KernelStackBase + KStackSize, __ATOMIC_SEQ_CST);
@@ -200,7 +232,11 @@ CreateThread(ThreadType     __Type__,
                 KFree(UserStackBase, Error);
             }
             KFree(NewThread, Error);
-            return Error_TO_Pointer(-BadAlloc);
+            PushError("CreateThread",
+                      LOGTHREADMGRC_PError,
+                      "Failed to allocate memory for thread user stack",
+                      Pointer_TO_Error(UserStackBase));
+            return Error_TO_Pointer(-BadAllocation);
         }
         __atomic_store_n(
             &NewThread->KernelStack, (uint64_t)KernelStackBase + KStackSize, __ATOMIC_SEQ_CST);
@@ -239,7 +275,6 @@ CreateThread(ThreadType     __Type__,
     __atomic_store_n(&NewThread->StartTime, GetSystemTicks(), __ATOMIC_SEQ_CST);
     __atomic_store_n(&NewThread->CreationTick, GetSystemTicks(), __ATOMIC_SEQ_CST);
     __atomic_store_n(&NewThread->WaitReason, WaitReasonNone, __ATOMIC_SEQ_CST);
-
     __atomic_store_n(&NewThread->PageDirectory, (uint64_t)0, __ATOMIC_SEQ_CST);
     __atomic_store_n(&NewThread->VirtualBase, UserVirtualBase, __ATOMIC_SEQ_CST);
     __atomic_store_n(&NewThread->MemoryUsage, (NewThread->StackSize * 2) / 1024, __ATOMIC_SEQ_CST);
@@ -252,6 +287,8 @@ CreateThread(ThreadType     __Type__,
     }
     __atomic_store_n(&ThreadList, NewThread, __ATOMIC_SEQ_CST);
 
+    LOGTHREADMGRC_PSuccess("Thread %llx created, TID: %llx\n", NewThread, NewThread->ThreadId);
+
     return NewThread;
 }
 
@@ -260,7 +297,8 @@ DestroyThread(Thread* __ThreadPtr__, SysErr* __Err__)
 {
     if (Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__)
     {
-        SlotError(__Err__, -BadArgs);
+        PushError("DestroyThread", LOGTHREADMGRC_PError, "bad thread pointer", -BadArguments);
+        SlotError(__Err__, -BadArguments);
         return;
     }
 
@@ -305,7 +343,8 @@ SuspendThread(Thread* __ThreadPtr__, SysErr* __Err__)
 {
     if (Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__)
     {
-        SlotError(__Err__, -BadArgs);
+        PushError("SuspendThread", LOGTHREADMGRC_PError, "bad thread pointer", -BadArguments);
+        SlotError(__Err__, -BadArguments);
         return;
     }
 
@@ -334,7 +373,8 @@ ResumeThread(Thread* __ThreadPtr__, SysErr* __Err__)
 {
     if (Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__)
     {
-        SlotError(__Err__, -BadArgs);
+        PushError("ResumeThread", LOGTHREADMGRC_PError, "bad thread pointer", -BadArguments);
+        SlotError(__Err__, -BadArguments);
         return;
     }
 
@@ -368,7 +408,8 @@ SetThreadPriority(Thread* __ThreadPtr__, ThreadPriority __Priority__, SysErr* __
 {
     if (Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__)
     {
-        SlotError(__Err__, -BadArgs);
+        PushError("SetThreadPriority", LOGTHREADMGRC_PError, "bad thread pointer", -BadArguments);
+        SlotError(__Err__, -BadArguments);
         return;
     }
 
@@ -392,12 +433,12 @@ SetThreadPriority(Thread* __ThreadPtr__, ThreadPriority __Priority__, SysErr* __
         }
     }
 
-    PDebug("Thread %u priority changed: %u -> %u (scheduler: %u -> %u)\n",
-           __atomic_load_n(&__ThreadPtr__->ThreadId, __ATOMIC_SEQ_CST),
-           __atomic_load_n(&__ThreadPtr__->BasePriority, __ATOMIC_SEQ_CST),
-           __Priority__,
-           OldPrio,
-           NewPrio);
+    LOGTHREADMGRC_PDebug("Thread %u priority changed: %u -> %u (scheduler: %u -> %u)\n",
+                         __atomic_load_n(&__ThreadPtr__->ThreadId, __ATOMIC_SEQ_CST),
+                         __atomic_load_n(&__ThreadPtr__->BasePriority, __ATOMIC_SEQ_CST),
+                         __Priority__,
+                         OldPrio,
+                         NewPrio);
 }
 
 /*Super simple load balancing, just equally distributes threads across CPU cores, nothing too
@@ -408,7 +449,8 @@ SetThreadAffinity(Thread* __ThreadPtr__, uint32_t __CpuMask__, SysErr* __Err__)
 {
     if (Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__)
     {
-        SlotError(__Err__, -BadArgs);
+        PushError("SetThreadAffinity", LOGTHREADMGRC_PError, "bad thread pointer", -BadArguments);
+        SlotError(__Err__, -BadArguments);
         return;
     }
 
@@ -445,6 +487,7 @@ GetCpuLoad(uint32_t __CpuId__)
 {
     if (__CpuId__ >= MaxCPUs)
     {
+        PushError("GetCpuLoad", LOGTHREADMGRC_PError, "bad CPU ID", -BadArguments);
         return 0xFFFFFFFF;
     }
 
@@ -478,6 +521,7 @@ CalculateOptimalCpu(Thread* __ThreadPtr__)
 {
     if (Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__)
     {
+        PushError("CalculateOptimalCpu", LOGTHREADMGRC_PError, "bad thread pointer", -BadArguments);
         return Nothing;
     }
 
@@ -512,7 +556,8 @@ ThreadExecute(Thread* __ThreadPtr__, SysErr* __Err__)
 {
     if (Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("ThreadExecute", LOGTHREADMGRC_PError, "bad thread pointer", -BadArguments);
         return;
     }
 
@@ -523,10 +568,10 @@ ThreadExecute(Thread* __ThreadPtr__, SysErr* __Err__)
 
     AddThreadToReadyQueue(TargetCpu, __ThreadPtr__, __Err__);
 
-    PDebug("Thread %u assigned to CPU %u (Load: %u)\n",
-           __atomic_load_n(&__ThreadPtr__->ThreadId, __ATOMIC_SEQ_CST),
-           TargetCpu,
-           GetCpuLoad(TargetCpu));
+    LOGTHREADMGRC_PDebug("Thread %u assigned to CPU %u (Load: %u)\n",
+                         __atomic_load_n(&__ThreadPtr__->ThreadId, __ATOMIC_SEQ_CST),
+                         TargetCpu,
+                         GetCpuLoad(TargetCpu));
 }
 
 void
@@ -534,7 +579,8 @@ ThreadExecuteMultiple(Thread** __ThreadArray__, uint32_t __ThreadCount__, SysErr
 {
     if (Probe_IF_Error(__ThreadArray__) || !__ThreadArray__ || __ThreadCount__ == 0)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("ThreadExecuteMultiple", LOGTHREADMGRC_PError, "bad thread array", -BadArguments);
         return;
     }
 
@@ -552,10 +598,10 @@ ThreadExecuteMultiple(Thread** __ThreadArray__, uint32_t __ThreadCount__, SysErr
 
         AddThreadToReadyQueue(TargetCpu, ThreadPtr, __Err__);
 
-        PDebug("Thread %u -> CPU %u (Load: %u)\n",
-               __atomic_load_n(&ThreadPtr->ThreadId, __ATOMIC_SEQ_CST),
-               TargetCpu,
-               GetCpuLoad(TargetCpu));
+        LOGTHREADMGRC_PDebug("Thread %u -> CPU %u (Load: %u)\n",
+                             __atomic_load_n(&ThreadPtr->ThreadId, __ATOMIC_SEQ_CST),
+                             TargetCpu,
+                             GetCpuLoad(TargetCpu));
     }
 }
 
@@ -596,10 +642,10 @@ LoadBalanceThreads(SysErr* __Err__)
                 __atomic_store_n(&ThreadToMigrate->LastCpu, MinCpu, __ATOMIC_SEQ_CST);
                 AddThreadToReadyQueue(MinCpu, ThreadToMigrate, __Err__);
 
-                PDebug("Migrated Thread %u from CPU %u to CPU %u\n",
-                       __atomic_load_n(&ThreadToMigrate->ThreadId, __ATOMIC_SEQ_CST),
-                       MaxCpu,
-                       MinCpu);
+                LOGTHREADMGRC_PDebug("Migrated Thread %u from CPU %u to CPU %u\n",
+                                     __atomic_load_n(&ThreadToMigrate->ThreadId, __ATOMIC_SEQ_CST),
+                                     MaxCpu,
+                                     MinCpu);
             }
             else
             {
@@ -704,20 +750,22 @@ ThreadExit(uint32_t __ExitCode__, SysErr* __Err__)
     if (Probe_IF_Error(Current) || !Current)
     {
         SlotError(__Err__, -NoOperations);
+        PushError("ThreadExit",
+                  LOGTHREADMGRC_PError,
+                  "bad thread pointer, no current",
+                  Pointer_TO_Error(Current));
         return;
     }
 
     __atomic_store_n(&Current->State, ThreadStateZombie, __ATOMIC_SEQ_CST);
     __atomic_store_n(&Current->ExitCode, __ExitCode__, __ATOMIC_SEQ_CST);
 
-    PInfo("Thread %u exiting with code %u\n",
-          __atomic_load_n(&Current->ThreadId, __ATOMIC_SEQ_CST),
-          __ExitCode__);
+    LOGTHREADMGRC_PInfo("Thread %u exiting with code %u\n",
+                        __atomic_load_n(&Current->ThreadId, __ATOMIC_SEQ_CST),
+                        __ExitCode__);
 
     AddThreadToZombieQueue(CpuId, Current, __Err__);
-
     RemoveThreadFromAllQueues(CpuId, Current, __Err__);
-
     ThreadYield(__Err__);
 }
 
@@ -736,6 +784,7 @@ FindThreadById(uint32_t __ThreadId__)
         Current = __atomic_load_n(&Current->Next, __ATOMIC_SEQ_CST);
     }
 
+    PushError("FindThreadById", LOGTHREADMGRC_PError, "No such thread", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }
 
@@ -795,28 +844,29 @@ DumpThreadInfo(Thread* __ThreadPtr__, SysErr* __Err__)
 {
     if (Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("DumpThreadInfo", LOGTHREADMGRC_PError, "bad thread pointer", -BadArguments);
         return;
     }
 
-    PInfo("Thread %u (%s):\n",
-          __atomic_load_n(&__ThreadPtr__->ThreadId, __ATOMIC_SEQ_CST),
-          __ThreadPtr__->Name);
-    PInfo("  State: %u, Type: %u, Priority: %u\n",
-          __atomic_load_n(&__ThreadPtr__->State, __ATOMIC_SEQ_CST),
-          __atomic_load_n(&__ThreadPtr__->Type, __ATOMIC_SEQ_CST),
-          __atomic_load_n(&__ThreadPtr__->Priority, __ATOMIC_SEQ_CST));
-    PInfo("  CPU Time: %llu, Context Switches: %llu\n",
-          __atomic_load_n(&__ThreadPtr__->CpuTime, __ATOMIC_SEQ_CST),
-          __atomic_load_n(&__ThreadPtr__->ContextSwitches, __ATOMIC_SEQ_CST));
-    PInfo("  Stack: K=0x%llx U=0x%llx Size=%u\n",
-          __atomic_load_n(&__ThreadPtr__->KernelStack, __ATOMIC_SEQ_CST),
-          __atomic_load_n(&__ThreadPtr__->UserStack, __ATOMIC_SEQ_CST),
-          __atomic_load_n(&__ThreadPtr__->StackSize, __ATOMIC_SEQ_CST));
-    PInfo("  Memory: %u KB, Affinity: 0x%x, LastCpu: %u\n",
-          __atomic_load_n(&__ThreadPtr__->MemoryUsage, __ATOMIC_SEQ_CST),
-          __atomic_load_n(&__ThreadPtr__->CpuAffinity, __ATOMIC_SEQ_CST),
-          __atomic_load_n(&__ThreadPtr__->LastCpu, __ATOMIC_SEQ_CST));
+    LOGTHREADMGRC_PInfo("Thread %u (%s):\n",
+                        __atomic_load_n(&__ThreadPtr__->ThreadId, __ATOMIC_SEQ_CST),
+                        __ThreadPtr__->Name);
+    LOGTHREADMGRC_PInfo("  State: %u, Type: %u, Priority: %u\n",
+                        __atomic_load_n(&__ThreadPtr__->State, __ATOMIC_SEQ_CST),
+                        __atomic_load_n(&__ThreadPtr__->Type, __ATOMIC_SEQ_CST),
+                        __atomic_load_n(&__ThreadPtr__->Priority, __ATOMIC_SEQ_CST));
+    LOGTHREADMGRC_PInfo("  CPU Time: %llu, Context Switches: %llu\n",
+                        __atomic_load_n(&__ThreadPtr__->CpuTime, __ATOMIC_SEQ_CST),
+                        __atomic_load_n(&__ThreadPtr__->ContextSwitches, __ATOMIC_SEQ_CST));
+    LOGTHREADMGRC_PInfo("  Stack: K=0x%llx U=0x%llx Size=%u\n",
+                        __atomic_load_n(&__ThreadPtr__->KernelStack, __ATOMIC_SEQ_CST),
+                        __atomic_load_n(&__ThreadPtr__->UserStack, __ATOMIC_SEQ_CST),
+                        __atomic_load_n(&__ThreadPtr__->StackSize, __ATOMIC_SEQ_CST));
+    LOGTHREADMGRC_PInfo("  Memory: %u KB, Affinity: 0x%x, LastCpu: %u\n",
+                        __atomic_load_n(&__ThreadPtr__->MemoryUsage, __ATOMIC_SEQ_CST),
+                        __atomic_load_n(&__ThreadPtr__->CpuAffinity, __ATOMIC_SEQ_CST),
+                        __atomic_load_n(&__ThreadPtr__->LastCpu, __ATOMIC_SEQ_CST));
 }
 
 void
@@ -827,15 +877,15 @@ DumpAllThreads(SysErr* __Err__ _unused)
 
     while (Current)
     {
-        PInfo("Thread %u: %s (State: %u, CPU: %u, Prio: %u)\n",
-              __atomic_load_n(&Current->ThreadId, __ATOMIC_SEQ_CST),
-              Current->Name,
-              __atomic_load_n(&Current->State, __ATOMIC_SEQ_CST),
-              __atomic_load_n(&Current->LastCpu, __ATOMIC_SEQ_CST),
-              __atomic_load_n(&Current->Priority, __ATOMIC_SEQ_CST));
+        LOGTHREADMGRC_PInfo("Thread %u: %s (State: %u, CPU: %u, Prio: %u)\n",
+                            __atomic_load_n(&Current->ThreadId, __ATOMIC_SEQ_CST),
+                            Current->Name,
+                            __atomic_load_n(&Current->State, __ATOMIC_SEQ_CST),
+                            __atomic_load_n(&Current->LastCpu, __ATOMIC_SEQ_CST),
+                            __atomic_load_n(&Current->Priority, __ATOMIC_SEQ_CST));
         Current = __atomic_load_n(&Current->Next, __ATOMIC_SEQ_CST);
         Count++;
     }
 
-    PInfo("Total threads: %u\n", Count);
+    LOGTHREADMGRC_PInfo("Total threads: %u\n", Count);
 }

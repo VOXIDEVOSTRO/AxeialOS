@@ -19,6 +19,8 @@
 #define MemoryTypeKernel   2
 #define MemoryTypeBad      3
 
+#define MaxPhysPages (1ULL << 24)
+
 typedef struct
 {
     uint64_t TotalPages;
@@ -52,6 +54,7 @@ typedef struct
 } PhysicalMemoryManager;
 
 extern PhysicalMemoryManager Pmm;
+extern _Atomic uint32_t      PageRefCounts[MaxPhysPages];
 
 void*    PhysToVirt(uint64_t __PhysAddr__);
 uint64_t VirtToPhys(void* __VirtAddr__);
@@ -73,6 +76,10 @@ void SetBitmapBit(uint64_t __PageIndex__, SysErr* __Err__);   //
 void ClearBitmapBit(uint64_t __PageIndex__, SysErr* __Err__); //
 int  TestBitmapBit(uint64_t __PageIndex__);                   //
 
+void     IncPageRef(uint64_t __Phys__, SysErr* __Err__);
+void     DecPageRef(uint64_t __Phys__, SysErr* __Err__);
+uint32_t GetPageRef(uint64_t __Phys__);
+
 KEXPORT(InitializePmm);
 KEXPORT(AllocPage);
 KEXPORT(FreePage);
@@ -80,3 +87,4 @@ KEXPORT(AllocPages);
 KEXPORT(FreePages);
 KEXPORT(PhysToVirt);
 KEXPORT(VirtToPhys);
+KEXPORT(Pmm);

@@ -65,3 +65,5 @@ enum ErrCodes
     Busy,          /*busy things*/
 
 };
+
+#define SysOkay 0

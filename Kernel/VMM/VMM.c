@@ -1,5 +1,51 @@
 #include <String.h>
 #include <VMM.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGVMMC_Debug
+#    define LOGVMMC_PDebug(fmt, ...) PDebug("[KERNEL>>VMM.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVMMC_PDebug(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVMMC_Logs
+#    define LOGVMMC_PError(fmt, ...) PError("[KERNEL>>VMM.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVMMC_PError(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVMMC_Logs
+#    define LOGVMMC_PWarn(fmt, ...) PWarn("[KERNEL>>VMM.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVMMC_PWarn(fmt, ...)                                                                \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVMMC_Logs
+#    define LOGVMMC_PInfo(fmt, ...) PInfo("[KERNEL>>VMM.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVMMC_PInfo(fmt, ...)                                                                \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVMMC_Logs
+#    define LOGVMMC_PSuccess(fmt, ...) PSuccess("[KERNEL>>VMM.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVMMC_PSuccess(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 VirtualMemoryManager Vmm = {0};
 
@@ -7,20 +53,24 @@ void
 InitializeVmm(SysErr* __Err__)
 {
     __atomic_store_n(&Vmm.HhdmOffset, Pmm.HhdmOffset, __ATOMIC_SEQ_CST);
-    PDebug("HHDM offset: 0x%016lx\n", __atomic_load_n(&Vmm.HhdmOffset, __ATOMIC_SEQ_CST));
+    LOGVMMC_PDebug("HHDM offset: 0x%016lx\n", __atomic_load_n(&Vmm.HhdmOffset, __ATOMIC_SEQ_CST));
 
     uint64_t CurrentCr3;
     __asm__ volatile("mov %%cr3, %0" : "=r"(CurrentCr3));
     uint64_t KernelPml4Physical = CurrentCr3 & 0xFFFFFFFFFFFFF000ULL;
     __atomic_store_n(&Vmm.KernelPml4Physical, KernelPml4Physical, __ATOMIC_SEQ_CST);
 
-    PDebug("Present PML4 at: 0x%016lx\n",
-           __atomic_load_n(&Vmm.KernelPml4Physical, __ATOMIC_SEQ_CST));
+    LOGVMMC_PDebug("Present PML4 at: 0x%016lx\n",
+                   __atomic_load_n(&Vmm.KernelPml4Physical, __ATOMIC_SEQ_CST));
 
     VirtualMemorySpace* KernelSpace = (VirtualMemorySpace*)PhysToVirt(AllocPage());
     if (!KernelSpace)
     {
-        SlotError(__Err__, -NotCanonical);
+        PushError("InitializeVmm",
+                  LOGVMMC_PError,
+                  "failed to allocate memory for kernel virtual space",
+                  -BadAllocation);
+        SlotError(__Err__, -BadAllocation);
         return;
     }
     __atomic_store_n(&Vmm.KernelSpace, KernelSpace, __ATOMIC_SEQ_CST);
@@ -33,8 +83,10 @@ InitializeVmm(SysErr* __Err__)
     __atomic_store_n(&KernelSpace->Pml4, Pml4Virt, __ATOMIC_SEQ_CST);
     __atomic_store_n(&KernelSpace->RefCount, 1, __ATOMIC_SEQ_CST);
 
-    PSuccess("VMM active with Kernel space at 0x%016lx\n",
-             __atomic_load_n(&Vmm.KernelPml4Physical, __ATOMIC_SEQ_CST));
+    PublishBspKernelCr3();
+
+    LOGVMMC_PSuccess("VMM active with Kernel space at 0x%016lx\n",
+                     __atomic_load_n(&Vmm.KernelPml4Physical, __ATOMIC_SEQ_CST));
 }
 
 VirtualMemorySpace*
@@ -43,12 +95,17 @@ CreateVirtualSpace(void)
     VirtualMemorySpace* KernelSpace = __atomic_load_n(&Vmm.KernelSpace, __ATOMIC_SEQ_CST);
     if (!KernelSpace || !__atomic_load_n(&KernelSpace->Pml4, __ATOMIC_SEQ_CST))
     {
+        PushError("CreateVirtualSpace", LOGVMMC_PError, "no kernel space available", -NotCanonical);
         return Error_TO_Pointer(-NotCanonical);
     }
 
     uint64_t SpacePhys = AllocPage();
     if (!SpacePhys)
     {
+        PushError("CreateVirtualSpace",
+                  LOGVMMC_PError,
+                  "failed to allocate physical page for virtual space",
+                  -NotCanonical);
         return Error_TO_Pointer(-NotCanonical);
     }
 
@@ -58,6 +115,10 @@ CreateVirtualSpace(void)
     VirtualMemorySpace* Space = (VirtualMemorySpace*)PhysToVirt(SpacePhys);
     if (Probe_IF_Error(Space) || !Space)
     {
+        PushError("CreateVirtualSpace",
+                  LOGVMMC_PError,
+                  "failed to map virtual space struct",
+                  -NotCanonical);
         FreePage(SpacePhys, Error);
         return Error_TO_Pointer(-NotCanonical);
     }
@@ -65,6 +126,10 @@ CreateVirtualSpace(void)
     uint64_t Pml4Phys = AllocPage();
     if (!Pml4Phys)
     {
+        PushError("CreateVirtualSpace",
+                  LOGVMMC_PError,
+                  "failed to allocate physical page for PML4",
+                  -NotCanonical);
         FreePage(SpacePhys, Error);
         return Error_TO_Pointer(-NotCanonical);
     }
@@ -77,6 +142,10 @@ CreateVirtualSpace(void)
     if (Probe_IF_Error(__atomic_load_n(&Space->Pml4, __ATOMIC_SEQ_CST)) ||
         !__atomic_load_n(&Space->Pml4, __ATOMIC_SEQ_CST))
     {
+        PushError("CreateVirtualSpace",
+                  LOGVMMC_PError,
+                  "failed to map virtual space PML4",
+                  -NotCanonical);
         FreePage(SpacePhys, Error);
         FreePage(Pml4Phys, Error);
         return Error_TO_Pointer(-NotCanonical);
@@ -95,7 +164,7 @@ CreateVirtualSpace(void)
         __atomic_store_n(&Pml4[Index], val, __ATOMIC_SEQ_CST);
     }
 
-    PDebug("Created virtual space: PML4=0x%016lx\n", Pml4Phys);
+    LOGVMMC_PDebug("Created virtual space: PML4=0x%016lx\n", Pml4Phys);
     return Space;
 }
 
@@ -105,6 +174,7 @@ DestroyVirtualSpace(VirtualMemorySpace* __Space__, SysErr* __Err__)
     VirtualMemorySpace* KernelSpace = __atomic_load_n(&Vmm.KernelSpace, __ATOMIC_SEQ_CST);
     if (Probe_IF_Error(__Space__) || !__Space__ || __Space__ == KernelSpace)
     {
+        PushError("DestroyVirtualSpace", LOGVMMC_PError, "bad virtual memory space", -NotCanonical);
         SlotError(__Err__, -NotCanonical);
         return;
     }
@@ -115,14 +185,16 @@ DestroyVirtualSpace(VirtualMemorySpace* __Space__, SysErr* __Err__)
     uint32_t old = __atomic_fetch_sub(&__Space__->RefCount, 1, __ATOMIC_SEQ_CST);
     if (old > 1)
     {
+        PushError(
+            "DestroyVirtualSpace", LOGVMMC_PError, "virtual space still has references", -Dangling);
         SlotError(__Err__, -Dangling);
-        PDebug("Virtual space still has %u references\n",
-               __atomic_load_n(&__Space__->RefCount, __ATOMIC_SEQ_CST));
+        LOGVMMC_PDebug("Virtual space still has %u references\n",
+                       __atomic_load_n(&__Space__->RefCount, __ATOMIC_SEQ_CST));
         return;
     }
 
-    PDebug("Destroying virtual space: PML4=0x%016lx\n",
-           __atomic_load_n(&__Space__->PhysicalBase, __ATOMIC_SEQ_CST));
+    LOGVMMC_PDebug("Destroying virtual space: PML4=0x%016lx\n",
+                   __atomic_load_n(&__Space__->PhysicalBase, __ATOMIC_SEQ_CST));
 
     uint64_t* Pml4 = __atomic_load_n(&__Space__->Pml4, __ATOMIC_SEQ_CST);
     for (uint64_t Pml4Index = 0; Pml4Index < 256; Pml4Index++)
@@ -186,11 +258,13 @@ MapPage(VirtualMemorySpace* __Space__,
     if (Probe_IF_Error(__Space__) || !__Space__ || (__VirtAddr__ % PageSize) != 0 ||
         (__PhysAddr__ % PageSize) != 0)
     {
-        return -BadArgs;
+        PushError("MapPage", LOGVMMC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     if (__PhysAddr__ > 0x000FFFFFFFFFF000ULL)
     {
+        PushError("MapPage", LOGVMMC_PError, "physical address out of range", -NotCanonical);
         return -NotCanonical;
     }
 
@@ -198,6 +272,10 @@ MapPage(VirtualMemorySpace* __Space__,
     uint64_t* Pt   = GetPageTable(Pml4, __VirtAddr__, 1, 1);
     if (Probe_IF_Error(Pt) || !Pt)
     {
+        PushError("MapPage",
+                  LOGVMMC_PError,
+                  "failed to get page table for virtual address",
+                  -NotCanonical);
         return -NotCanonical;
     }
 
@@ -206,7 +284,7 @@ MapPage(VirtualMemorySpace* __Space__,
     uint64_t Entry = __atomic_load_n(&Pt[PtIndex], __ATOMIC_SEQ_CST);
     if (Entry & PTEPRESENT)
     {
-        PDebug("Page already mapped at 0x%016lx\n", __VirtAddr__);
+        LOGVMMC_PDebug("Page already mapped at 0x%016lx\n", __VirtAddr__);
         return SysOkay;
     }
 
@@ -217,7 +295,8 @@ MapPage(VirtualMemorySpace* __Space__,
     SysErr* Error = &err;
     FlushTlb(__VirtAddr__, Error);
 
-    PDebug("Mapped 0x%016lx -> 0x%016lx (flags=0x%lx)\n", __VirtAddr__, __PhysAddr__, __Flags__);
+    LOGVMMC_PDebug(
+        "Mapped 0x%016lx -> 0x%016lx (flags=0x%lx)\n", __VirtAddr__, __PhysAddr__, __Flags__);
     return SysOkay;
 }
 
@@ -231,6 +310,10 @@ MapRangeZeroed(VirtualMemorySpace* __Space__,
     uint64_t Phys  = AllocPages(Pages);
     if (!Phys)
     {
+        PushError("MapRangeZeroed",
+                  LOGVMMC_PError,
+                  "failed to allocate physical pages for mapping",
+                  -NotCanonical);
         return -NotCanonical;
     }
 
@@ -242,7 +325,8 @@ MapRangeZeroed(VirtualMemorySpace* __Space__,
     {
         if (MapPage(__Space__, Va, Pcur, __Flags__) != SysOkay)
         {
-            return -ErrReturn;
+            PushError("MapRangeZeroed", LOGVMMC_PError, "failed to map page in range", -BadReturn);
+            return -BadReturn;
         }
         memset(PhysToVirt(Pcur), 0, PageSize);
         Va += PageSize;
@@ -256,13 +340,18 @@ UnmapPage(VirtualMemorySpace* __Space__, uint64_t __VirtAddr__)
 {
     if (Probe_IF_Error(__Space__) || !__Space__ || (__VirtAddr__ % PageSize) != 0)
     {
-        return -BadArgs;
+        PushError("UnmapPage", LOGVMMC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     uint64_t* Pml4 = __atomic_load_n(&__Space__->Pml4, __ATOMIC_SEQ_CST);
     uint64_t* Pt   = GetPageTable(Pml4, __VirtAddr__, 1, 0);
     if (Probe_IF_Error(Pt) || !Pt)
     {
+        PushError("UnmapPage",
+                  LOGVMMC_PError,
+                  "failed to get page table for virtual address",
+                  -NotCanonical);
         return -NotCanonical;
     }
 
@@ -271,6 +360,7 @@ UnmapPage(VirtualMemorySpace* __Space__, uint64_t __VirtAddr__)
     uint64_t Entry = __atomic_load_n(&Pt[PtIndex], __ATOMIC_SEQ_CST);
     if (!(Entry & PTEPRESENT))
     {
+        PushError("UnmapPage", LOGVMMC_PError, "page not mapped", -Dangling);
         return -Dangling;
     }
 
@@ -280,7 +370,7 @@ UnmapPage(VirtualMemorySpace* __Space__, uint64_t __VirtAddr__)
     SysErr* Error = &err;
     FlushTlb(__VirtAddr__, Error);
 
-    PDebug("Unmapped 0x%016lx\n", __VirtAddr__);
+    LOGVMMC_PDebug("Unmapped 0x%016lx\n", __VirtAddr__);
     return SysOkay;
 }
 
@@ -289,6 +379,7 @@ GetPhysicalAddress(VirtualMemorySpace* __Space__, uint64_t __VirtAddr__)
 {
     if (Probe_IF_Error(__Space__) || !__Space__)
     {
+        PushError("GetPhysicalAddress", LOGVMMC_PError, "bad virtual memory space", -NotCanonical);
         return -NotCanonical;
     }
 
@@ -296,6 +387,10 @@ GetPhysicalAddress(VirtualMemorySpace* __Space__, uint64_t __VirtAddr__)
     uint64_t* Pt   = GetPageTable(Pml4, __VirtAddr__, 1, 0);
     if (Probe_IF_Error(Pt) || !Pt)
     {
+        PushError("GetPhysicalAddress",
+                  LOGVMMC_PError,
+                  "failed to get page table for virtual address",
+                  -NotCanonical);
         return -NotCanonical;
     }
 
@@ -304,6 +399,7 @@ GetPhysicalAddress(VirtualMemorySpace* __Space__, uint64_t __VirtAddr__)
     uint64_t Entry = __atomic_load_n(&Pt[PtIndex], __ATOMIC_SEQ_CST);
     if (!(Entry & PTEPRESENT))
     {
+        PushError("GetPhysicalAddress", LOGVMMC_PError, "page not mapped", -Dangling);
         return -Dangling;
     }
 
@@ -319,6 +415,7 @@ SwitchVirtualSpace(VirtualMemorySpace* __Space__, SysErr* __Err__)
 {
     if (Probe_IF_Error(__Space__) || !__Space__)
     {
+        PushError("SwitchVirtualSpace", LOGVMMC_PError, "bad virtual memory space", -NotCanonical);
         SlotError(__Err__, -NotCanonical);
         return;
     }
@@ -326,5 +423,5 @@ SwitchVirtualSpace(VirtualMemorySpace* __Space__, SysErr* __Err__)
     uint64_t phys = __atomic_load_n(&__Space__->PhysicalBase, __ATOMIC_SEQ_CST);
     __asm__ volatile("mov %0, %%cr3" ::"r"(phys) : "memory");
 
-    PDebug("Switched to virtual space: PML4=0x%016lx\n", phys);
+    LOGVMMC_PDebug("Switched to virtual space: PML4=0x%016lx\n", phys);
 }

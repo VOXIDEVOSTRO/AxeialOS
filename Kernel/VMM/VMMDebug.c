@@ -1,4 +1,50 @@
 #include <VMM.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGVMMDEBUGC_Debug
+#    define LOGVMMDEBUGC_PDebug(fmt, ...) PDebug("[KERNEL>>VMMDebug.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVMMDEBUGC_PDebug(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVMMDEBUGC_Logs
+#    define LOGVMMDEBUGC_PError(fmt, ...) PError("[KERNEL>>VMMDebug.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVMMDEBUGC_PError(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVMMDEBUGC_Logs
+#    define LOGVMMDEBUGC_PWarn(fmt, ...) PWarn("[KERNEL>>VMMDebug.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVMMDEBUGC_PWarn(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVMMDEBUGC_Logs
+#    define LOGVMMDEBUGC_PInfo(fmt, ...) PInfo("[KERNEL>>VMMDebug.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVMMDEBUGC_PInfo(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVMMDEBUGC_Logs
+#    define LOGVMMDEBUGC_PSuccess(fmt, ...) PSuccess("[KERNEL>>VMMDebug.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVMMDEBUGC_PSuccess(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 static int
 IsValidPhysicalAddress(uint64_t __PhysAddr__)
@@ -7,11 +53,17 @@ IsValidPhysicalAddress(uint64_t __PhysAddr__)
 
     if (atomic_load(&PhysAddr) == 0)
     {
+        PushError(
+            "IsValidPhysicalAddress", LOGVMMDEBUGC_PError, "NULL physical addr", -NotCanonical);
         return -NotCanonical;
     }
 
     if ((atomic_load(&PhysAddr) & 0xFFF) != 0)
     {
+        PushError("IsValidPhysicalAddress",
+                  LOGVMMDEBUGC_PError,
+                  "unaligned physical addr",
+                  -NotCanonical);
         return -NotCanonical;
     }
 
@@ -28,6 +80,10 @@ IsValidPhysicalAddress(uint64_t __PhysAddr__)
         }
     }
 
+    PushError("IsValidPhysicalAddress",
+              LOGVMMDEBUGC_PError,
+              "physical addr out of range not valid",
+              -NotCanonical);
     return -NotCanonical;
 }
 
@@ -38,6 +94,10 @@ IsValidHhdmAddress(uint64_t __VirtAddr__)
 
     if (atomic_load(&VirtAddr) < Vmm.HhdmOffset)
     {
+        PushError("IsValidHhdmAddress",
+                  LOGVMMDEBUGC_PError,
+                  "HHDM addr below HHDM offset",
+                  -NotCanonical);
         return -NotCanonical;
     }
 
@@ -53,7 +113,8 @@ IsSafeToAccess(uint64_t* __Ptr__)
 
     if (Probe_IF_Error(__Ptr__) || !PtrAtomic)
     {
-        return -BadArgs;
+        PushError("IsSafeToAccess", LOGVMMDEBUGC_PError, "NULL pointer access", -BadArguments);
+        return -BadArguments;
     }
 
     _Atomic uint64_t VirtAddr = ATOMIC_VAR_INIT((uint64_t)__Ptr__);
@@ -66,12 +127,14 @@ VmmDumpSpace(VirtualMemorySpace* __Space__, SysErr* __Err__)
 {
     if (Probe_IF_Error(__Space__) || !__Space__)
     {
+        PushError("VmmDumpSpace", LOGVMMDEBUGC_PError, "bad virtual memory space", -NotCanonical);
         SlotError(__Err__, -NotCanonical);
         return;
     }
 
     if (!IsValidPhysicalAddress(__Space__->PhysicalBase))
     {
+        PushError("VmmDumpSpace", LOGVMMDEBUGC_PError, "bad PML4 physical address", -NotCanonical);
         SlotError(__Err__, -NotCanonical);
         return;
     }
@@ -79,14 +142,17 @@ VmmDumpSpace(VirtualMemorySpace* __Space__, SysErr* __Err__)
     if (Probe_IF_Error(__Space__->Pml4) || !__Space__->Pml4 ||
         !IsValidHhdmAddress((uint64_t)__Space__->Pml4))
     {
+        PushError("VmmDumpSpace", LOGVMMDEBUGC_PError, "bad PML4 virtual address", -NotCanonical);
         SlotError(__Err__, -NotCanonical);
         return;
     }
 
-    PInfo("Virtual Memory Space Information:\n");
+    LOGVMMDEBUGC_PInfo("Virtual Memory Space Information:\n");
+#ifdef LOGVMMDEBUGC_Logs
     KrnPrintf("  PML4 Physical: 0x%016lx\n", __Space__->PhysicalBase);
     KrnPrintf("  PML4 Virtual:  0x%016lx\n", (uint64_t)__Space__->Pml4);
     KrnPrintf("  Reference Count: %u\n", __Space__->RefCount);
+#endif
 
     _Atomic uint64_t MappedPages     = ATOMIC_VAR_INIT(0);
     _Atomic uint64_t ValidatedTables = ATOMIC_VAR_INIT(0);
@@ -185,11 +251,12 @@ VmmDumpSpace(VirtualMemorySpace* __Space__, SysErr* __Err__)
             }
         }
     }
-
+#ifdef LOGVMMDEBUGC_Logs
     KrnPrintf("  Validated Tables: %lu\n", atomic_load(&ValidatedTables));
     KrnPrintf("  Skipped Tables: %lu\n", atomic_load(&SkippedTables));
     KrnPrintf(
         "  Mapped Pages: %lu (%lu KB)\n", atomic_load(&MappedPages), atomic_load(&MappedPages) * 4);
+#endif
 }
 
 void
@@ -197,14 +264,15 @@ VmmDumpStats(SysErr* __Err__)
 {
     if (!Vmm.HhdmOffset)
     {
+        PushError("VmmDumpStats", LOGVMMDEBUGC_PError, "HHDM offset not set", -NotCanonical);
         SlotError(__Err__, -NotCanonical);
         return;
     }
 
-    PInfo("VMM Statistics:\n");
+    LOGVMMDEBUGC_PInfo("VMM Statistics:\n");
+#ifdef LOGVMMDEBUGC_Logs
     KrnPrintf("  HHDM Offset: 0x%016lx\n", Vmm.HhdmOffset);
     KrnPrintf("  Kernel PML4: 0x%016lx\n", Vmm.KernelPml4Physical);
-
     KrnPrintf("  Memory Map Regions: %u\n", Pmm.RegionCount);
     for (uint32_t Index = 0; Index < Pmm.RegionCount && Index < 5; Index++)
     {
@@ -226,6 +294,7 @@ VmmDumpStats(SysErr* __Err__)
     }
     else
     {
-        PWarn("  No kernel space available\n");
+        LOGVMMDEBUGC_PWarn("  No kernel space available\n");
     }
+#endif
 }

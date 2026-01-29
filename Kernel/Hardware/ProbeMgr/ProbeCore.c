@@ -1,7 +1,57 @@
+/*
+    Middle layer of Device Abstraction Mgr (DAM)
+*/
+
 #include <KHeap.h>
 #include <KrnPrintf.h>
 #include <ProbeMgr.h>
 #include <String.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGPROBECOREC_Debug
+#    define LOGPROBECOREC_PDebug(fmt, ...) PDebug("[KERNEL>>ProbeCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROBECOREC_PDebug(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROBECOREC_Logs
+#    define LOGPROBECOREC_PError(fmt, ...) PError("[KERNEL>>ProbeCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROBECOREC_PError(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROBECOREC_Logs
+#    define LOGPROBECOREC_PWarn(fmt, ...) PWarn("[KERNEL>>ProbeCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROBECOREC_PWarn(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROBECOREC_Logs
+#    define LOGPROBECOREC_PInfo(fmt, ...) PInfo("[KERNEL>>ProbeCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROBECOREC_PInfo(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROBECOREC_Logs
+#    define LOGPROBECOREC_PSuccess(fmt, ...) PSuccess("[KERNEL>>ProbeCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROBECOREC_PSuccess(fmt, ...)                                                       \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 /*Manager*/
 ProbeManagerContext ProbeManager = {0};
@@ -12,25 +62,25 @@ __HasProbePrefix__(const char* __Name__)
 {
     if (Probe_IF_Error(__Name__) || !__Name__)
     {
-        return Nothing;
+        return Nothing; /*Zero is error*/
     }
     const char* P = ProbePrefix;
     uint32_t    I = 0;
     while (P[I] && __Name__[I])
     {
-        char a = P[I];
-        char b = __Name__[I];
-        if (a >= 'a' && a <= 'z')
+        char CharA = P[I];
+        char CharB = __Name__[I];
+        if (CharA >= 'a' && CharA <= 'z')
         {
-            a -= 32;
+            CharA -= 32;
         }
-        if (b >= 'a' && b <= 'z')
+        if (CharB >= 'a' && CharB <= 'z')
         {
-            b -= 32;
+            CharB -= 32;
         }
-        if (a != b)
+        if (CharA != CharB)
         {
-            return 0;
+            return Nothing;
         }
         I++;
     }
@@ -42,7 +92,11 @@ __RegisterProbe__(DriverEntry* __Drv__, const char* __DeviceName__)
 {
     if (Probe_IF_Error(__Drv__) || !__Drv__ || Probe_IF_Error(__DeviceName__) || !__DeviceName__)
     {
-        return -BadArgs;
+        PushError("__RegisterProbe__",
+                  LOGPROBECOREC_PError,
+                  "bad arguments in __RegisterProbe__",
+                  -BadArguments);
+        return -BadArguments;
     }
 
     /* duplicate check */
@@ -51,6 +105,10 @@ __RegisterProbe__(DriverEntry* __Drv__, const char* __DeviceName__)
     {
         if (Cur->Driver == __Drv__)
         {
+            PushError("__RegisterProbe__",
+                      LOGPROBECOREC_PError,
+                      "probe already exists from __RegisterProbe__",
+                      -Redefined);
             return -Redefined;
         }
         Cur = Cur->Next;
@@ -59,7 +117,11 @@ __RegisterProbe__(DriverEntry* __Drv__, const char* __DeviceName__)
     Probe* Node = (Probe*)KMalloc(sizeof(Probe));
     if (Probe_IF_Error(Node) || !Node)
     {
-        return -BadAlloc;
+        PushError("__RegisterProbe__",
+                  LOGPROBECOREC_PError,
+                  "bad node allocated in __RegisterProbe__",
+                  Pointer_TO_Error(Node));
+        return -BadAllocation;
     }
 
     /* copy device Name */
@@ -92,7 +154,11 @@ __DiscoverProbes__(void)
     DriverEntry** All = GetAllDrivers(&Idx);
     if (Probe_IF_Error(All) || !All)
     {
-        return Pointer_TO_Error(All);
+        PushError("__DiscoverProbes__",
+                  LOGPROBECOREC_PError,
+                  "cannot get all driver in __DiscoverProbe__",
+                  Pointer_TO_Error(All));
+        return -BadReturn;
     }
 
     for (uint32_t I = 0; I < Idx; I++)
@@ -141,11 +207,19 @@ __InvokeProbe__(DriverEntry* __Drv__)
 {
     if (Probe_IF_Error(__Drv__) || !__Drv__ || !__Drv__->Info.ModuleHandle)
     {
+        PushError("__InvokeProbe__",
+                  LOGPROBECOREC_PError,
+                  "bad arguments in __InvokeProbe__",
+                  -BadArguments);
         return -Missing;
     }
     ModuleRecord* Module = __Drv__->Info.ModuleHandle;
     if (Probe_IF_Error(Module->ProbeFn) || !Module->ProbeFn)
     {
+        PushError("__InvokeProbe__",
+                  LOGPROBECOREC_PError,
+                  "no probe function found in module for __InvokeProbe__",
+                  -NoOperations);
         return -NoOperations;
     }
     return Module->ProbeFn(); /* SysOkay if device detected */
@@ -163,7 +237,15 @@ InitProbeManager(SysErr* __Err__)
     InitializeSpinLock(&ProbeManager.Lock, "ProbeManager", Error);
 
     int Ret = __DiscoverProbes__();
-    SlotError(__Err__, Ret == SysOkay ? SysOkay : Ret);
+    if (Ret != SysOkay)
+    {
+        SlotError(__Err__, -BadReturn);
+        PushError("InitProbeManager",
+                  LOGPROBECOREC_PError,
+                  "cannot discover probes for InitProbeManager",
+                  Ret);
+        return;
+    }
 }
 
 int
@@ -171,7 +253,11 @@ RefreshProbes(void)
 {
     if (!ProbeManager.Initialized)
     {
-        return -NotInit;
+        PushError("RefreshProbes",
+                  LOGPROBECOREC_PError,
+                  "probe mgr not init for RefreshProbes",
+                  -NotInitilized);
+        return -NotInitilized;
     }
 
     SysErr  err;
@@ -183,6 +269,8 @@ RefreshProbes(void)
     if (Ret != SysOkay)
     {
         ReleaseSpinLock(&ProbeManager.Lock, Error);
+        PushError(
+            "RefreshProbes", LOGPROBECOREC_PError, "cannot discover probes in RefreshProbes", Ret);
         return Ret;
     }
 

@@ -5,6 +5,52 @@
 #include <ModMemMgr.h>
 #include <String.h>
 #include <VFS.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGMODMGRC_Debug
+#    define LOGMODMGRC_PDebug(fmt, ...) PDebug("[KERNEL>>ModMgr.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMODMGRC_PDebug(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGMODMGRC_Logs
+#    define LOGMODMGRC_PError(fmt, ...) PError("[KERNEL>>ModMgr.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMODMGRC_PError(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGMODMGRC_Logs
+#    define LOGMODMGRC_PWarn(fmt, ...) PWarn("[KERNEL>>ModMgr.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMODMGRC_PWarn(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGMODMGRC_Logs
+#    define LOGMODMGRC_PInfo(fmt, ...) PInfo("[KERNEL>>ModMgr.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMODMGRC_PInfo(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGMODMGRC_Logs
+#    define LOGMODMGRC_PSuccess(fmt, ...) PSuccess("[KERNEL>>ModMgr.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMODMGRC_PSuccess(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 /*Globals*/
 ModuleRecord* ModuleListHead = 0;
@@ -21,7 +67,11 @@ ModuleRegistryAdd(ModuleRecord* __Rec__)
 {
     if (Probe_IF_Error(__Rec__) || !__Rec__)
     {
-        return -BadArgs;
+        PushError("ModuleRegistryAdd",
+                  LOGMODMGRC_PError,
+                  "bad argument in ModuleRegistryAdd",
+                  -BadArguments);
+        return -BadArguments;
     }
 
     __Rec__->Next  = ModuleListHead;
@@ -34,7 +84,11 @@ ModuleRegistryFind(const char* __Name__)
 {
     if (Probe_IF_Error(__Name__) || !__Name__)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("ModuleRegistryFind",
+                  LOGMODMGRC_PError,
+                  "bad argument in ModuleRegistryFind",
+                  -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     ModuleRecord* It = ModuleListHead;
@@ -46,6 +100,9 @@ ModuleRegistryFind(const char* __Name__)
         }
         It = It->Next;
     }
+
+    PushError(
+        "ModuleRegistryFind", LOGMODMGRC_PError, "module not found in ModuleRegistryFind", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }
 
@@ -54,7 +111,11 @@ ModuleRegistryRemove(ModuleRecord* __Rec__)
 {
     if (Probe_IF_Error(__Rec__) || !__Rec__)
     {
-        return -BadArgs;
+        PushError("ModuleRegistryRemove",
+                  LOGMODMGRC_PError,
+                  "bad argument in ModuleRegistryRemove",
+                  -BadArguments);
+        return -BadArguments;
     }
 
     ModuleRecord* Prev = 0;
@@ -76,5 +137,9 @@ ModuleRegistryRemove(ModuleRecord* __Rec__)
         Prev = It;
         It   = It->Next;
     }
+    PushError("ModuleRegistryRemove",
+              LOGMODMGRC_PError,
+              "module not found in ModuleRegistryRemove",
+              -NoSuch);
     return -NoSuch;
 }
