@@ -65,8 +65,8 @@ __FindDeviceByName__(const char* __Name__)
         return Error_TO_Pointer(-BadArguments);
     }
 
-    Device* cur = Devices.Devices;
-    while (cur)
+    Device* Cur = Devices.Devices;
+    while (Cur)
     {
         /* explicit compare */
         uint32_t L1 = 0, L2 = 0;
@@ -74,27 +74,27 @@ __FindDeviceByName__(const char* __Name__)
         {
             L1++;
         }
-        while (cur->Name[L2] != '\0')
+        while (Cur->Name[L2] != '\0')
         {
             L2++;
         }
         if (L1 == L2)
         {
-            uint32_t eq = 1;
+            uint32_t Eq = 1;
             for (uint32_t I = 0; I < L1; I++)
             {
-                if (__Name__[I] != cur->Name[I])
+                if (__Name__[I] != Cur->Name[I])
                 {
-                    eq = 0;
+                    Eq = 0;
                     break;
                 }
             }
-            if (eq)
+            if (Eq)
             {
-                return cur;
+                return Cur;
             }
         }
-        cur = cur->Next;
+        Cur = Cur->Next;
     }
     PushError("__FindDeviceByName__", LOGDEVCOREC_PError, "no such device installed", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
@@ -152,26 +152,21 @@ InstallDevice(const char*  __Name__,
     }
 
     SysErr  err;
-    SysErr* Error = &err;
-
-    AcquireSpinLock(&Devices.Lock, Error);
-
+    SysErr* Error     = &err;
     Device* Existence = __FindDeviceByName__(__Name__);
     if (!Probe_IF_Error(Existence) && Existence)
     {
-        ReleaseSpinLock(&Devices.Lock, Error);
         PushError("InstallDevice", LOGDEVCOREC_PError, "device already installed", -Redefined);
         return -Redefined;
     }
 
     Device* Record = (Device*)KMalloc(sizeof(Device));
-    if (!Record)
+    if (Probe_IF_Error(Record) || !Record)
     {
-        ReleaseSpinLock(&Devices.Lock, Error);
         PushError("InstallDevice",
                   LOGDEVCOREC_PError,
                   "can't allocate memory for new device record",
-                  -BadAllocation);
+                  Pointer_TO_Error(Record));
         return -BadAllocation;
     }
 
@@ -212,8 +207,6 @@ InstallDevice(const char*  __Name__,
     }
     Devices.Devices = Record;
     Devices.Count++;
-
-    ReleaseSpinLock(&Devices.Lock, Error);
     return SysOkay;
 }
 
@@ -238,14 +231,10 @@ UninstallDevice(const char* __Name__)
     }
 
     SysErr  err;
-    SysErr* Error = &err;
-
-    AcquireSpinLock(&Devices.Lock, Error);
-
+    SysErr* Error  = &err;
     Device* Record = __FindDeviceByName__(__Name__);
     if (Probe_IF_Error(Record) || !Record)
     {
-        ReleaseSpinLock(&Devices.Lock, Error);
         PushError("UninstallDevice",
                   LOGDEVCOREC_PError,
                   "no such device installed",
@@ -278,8 +267,6 @@ UninstallDevice(const char* __Name__)
     }
 
     Devices.Count--;
-    ReleaseSpinLock(&Devices.Lock, Error);
-
     KFree(Record, NULL);
     return SysOkay;
 }
@@ -303,13 +290,10 @@ ResolveDevice(const char* __Name__)
     }
 
     SysErr  err;
-    SysErr* Error = &err;
-    AcquireSpinLock(&Devices.Lock, Error);
-
+    SysErr* Error  = &err;
     Device* Record = __FindDeviceByName__(__Name__);
     if (Probe_IF_Error(Record) || !Record)
     {
-        ReleaseSpinLock(&Devices.Lock, Error);
         PushError("ResolveDevice",
                   LOGDEVCOREC_PError,
                   "no such device installed",
@@ -319,13 +303,9 @@ ResolveDevice(const char* __Name__)
 
     if (!Record->BondedDriver)
     {
-        ReleaseSpinLock(&Devices.Lock, Error);
         PushError("ResolveDevice", LOGDEVCOREC_PError, "device has no bonded driver", -Missing);
         return -Missing; /* no bonded driver to resolve */
     }
-
-    ReleaseSpinLock(&Devices.Lock, Error);
-
     /* Load driver by bonded name if not active */
     if (Record->BondedDriver->State != DriverStateActive)
     {

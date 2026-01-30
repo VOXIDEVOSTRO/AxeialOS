@@ -78,7 +78,7 @@ KernelWorkerThread(void* __Argument__)
     /*Idler*/
     LOGENTRYC_PInfo("KickStarting Idler...\n");
     Thread* T = CreateThread(ThreadTypeKernel, Idler, NULL, ThreadPriorityIdle);
-    ThreadExecute(T, Error);
+    ThreadExecute(T, Error); /*For balancing*/
     LOGENTRYC_PSuccess("Idler OK.\n");
 
     /*Modules*/
@@ -172,32 +172,6 @@ KernelWorkerThread(void* __Argument__)
 
     if (InitComplete == true)
     {
-        LOGENTRYC_PInfo("KickStarting DoNothingProc...\n");
-
-        PosixProc* LazyProc = PosixProcCreate();
-        if (Probe_IF_Error(LazyProc) || !LazyProc)
-        {
-            LOGENTRYC_PError("failed to create DoNothingProc, errno: %d\n",
-                             Pointer_TO_Error(LazyProc));
-        }
-
-        LOGENTRYC_PSuccess(
-            "created DoNothingProc pid=%ld ppid=%ld\n", LazyProc->Pid, LazyProc->Ppid);
-        const char* Lazy_argv[] = {NULL};
-        const char* Lazy_envp[] = {NULL};
-        int         Lazy_Ret    = PosixProcExecve(LazyProc, "/DoNothing.elf", Lazy_argv, Lazy_envp);
-        if (Lazy_Ret != SysOkay)
-        {
-            LOGENTRYC_PError(
-                "failed to kickstart DoNothingProc pid=%ld, Errno: %d\n", LazyProc->Pid, Lazy_Ret);
-        }
-        else
-        {
-            LOGENTRYC_PSuccess("executed DoNothingProc\n");
-        }
-
-        LOGENTRYC_PSuccess("DoNothingProc OK.\n");
-
         LOGENTRYC_PInfo("KickStarting InitProc...\n");
 
         LOGENTRYC_PSuccess("[Post kernel init complete]\n");

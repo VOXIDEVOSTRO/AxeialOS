@@ -124,9 +124,6 @@ ShutdownDriverManager(SysErr* __Err__)
                   -NotInitilized);
         return;
     }
-
-    AcquireSpinLock(&DriverManager.ManagerLock, __Err__);
-
     /*Unload all drivers*/
     DriverEntry* Current = DriverManager.AllDrivers;
     while (Current)
@@ -145,9 +142,6 @@ ShutdownDriverManager(SysErr* __Err__)
     DriverManager.AllDrivers   = NULL;
     DriverManager.TotalDrivers = 0;
     DriverManager.Initialized  = false;
-
-    ReleaseSpinLock(&DriverManager.ManagerLock, __Err__);
-
     LOGDRVCOREC_PInfo("Driver Manager shutdown complete\n");
 }
 
@@ -162,14 +156,11 @@ RegisterDriverType(const char* __TypeName__, DriverType __Type__)
 
     SysErr  err;
     SysErr* Error = &err;
-    AcquireSpinLock(&DriverManager.ManagerLock, Error);
-
     /*Check if type already exists*/
     for (uint32_t TypeIndex = 0; TypeIndex < DriverManager.TypeCount; TypeIndex++)
     {
         if (DriverManager.Types[TypeIndex].Type == __Type__)
         {
-            ReleaseSpinLock(&DriverManager.ManagerLock, Error);
             PushError(
                 "RegisterDriverType", LOGDRVCOREC_PError, "driver type already exists", -Redefined);
             return -Redefined;
@@ -182,9 +173,6 @@ RegisterDriverType(const char* __TypeName__, DriverType __Type__)
     Registry->DriverCount = 0;
 
     DriverManager.TypeCount++;
-
-    ReleaseSpinLock(&DriverManager.ManagerLock, Error);
-
     LOGDRVCOREC_PDebug("Registered driver type: %s (%u)\n", __TypeName__, __Type__);
     return SysOkay;
 }
@@ -194,8 +182,6 @@ UnregisterDriverType(DriverType __Type__)
 {
     SysErr  err;
     SysErr* Error = &err;
-    AcquireSpinLock(&DriverManager.ManagerLock, Error);
-
     for (uint32_t TypeIndex = 0; TypeIndex < DriverManager.TypeCount; TypeIndex++)
     {
         if (DriverManager.Types[TypeIndex].Type == __Type__)
@@ -203,7 +189,6 @@ UnregisterDriverType(DriverType __Type__)
             /*Check if any drivers are still using this type*/
             if (DriverManager.Types[TypeIndex].DriverCount > 0)
             {
-                ReleaseSpinLock(&DriverManager.ManagerLock, Error);
                 PushError("UnregisterDriverType",
                           LOGDRVCOREC_PError,
                           "drivers are still using this type",
@@ -219,12 +204,9 @@ UnregisterDriverType(DriverType __Type__)
             }
 
             DriverManager.TypeCount--;
-            ReleaseSpinLock(&DriverManager.ManagerLock, Error);
             return SysOkay;
         }
     }
-
-    ReleaseSpinLock(&DriverManager.ManagerLock, Error);
     PushError("UnregisterDriverType", LOGDRVCOREC_PError, "no such driver type", -NoSuch);
     return -NoSuch;
 }
@@ -244,22 +226,17 @@ FindDriverByName(const char* __DriverName__)
         return Error_TO_Pointer(-BadArguments);
     }
 
-    SysErr  err;
-    SysErr* Error = &err;
-    AcquireSpinLock(&DriverManager.ManagerLock, Error);
-
+    SysErr       err;
+    SysErr*      Error   = &err;
     DriverEntry* Current = DriverManager.AllDrivers;
     while (Current)
     {
         if (strcmp(Current->Info.Name, __DriverName__) == 0)
         {
-            ReleaseSpinLock(&DriverManager.ManagerLock, Error);
             return Current;
         }
         Current = Current->Next;
     }
-
-    ReleaseSpinLock(&DriverManager.ManagerLock, Error);
     PushError("FindDriverByName", LOGDRVCOREC_PError, "no such driver", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }
@@ -273,22 +250,17 @@ FindDriverByPath(const char* __FilePath__)
         return Error_TO_Pointer(-BadArguments);
     }
 
-    SysErr  err;
-    SysErr* Error = &err;
-    AcquireSpinLock(&DriverManager.ManagerLock, Error);
-
+    SysErr       err;
+    SysErr*      Error   = &err;
     DriverEntry* Current = DriverManager.AllDrivers;
     while (Current)
     {
         if (strcmp(Current->Info.FilePath, __FilePath__) == 0)
         {
-            ReleaseSpinLock(&DriverManager.ManagerLock, Error);
             return Current;
         }
         Current = Current->Next;
     }
-
-    ReleaseSpinLock(&DriverManager.ManagerLock, Error);
     PushError("FindDriverByPath", LOGDRVCOREC_PError, "no such driver", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }

@@ -1,7 +1,3 @@
-/*
-    Middle layer of Device Abstraction Mgr (DAM)
-*/
-
 #include <KHeap.h>
 #include <KrnPrintf.h>
 #include <ProbeMgr.h>
@@ -262,13 +258,9 @@ RefreshProbes(void)
 
     SysErr  err;
     SysErr* Error = &err;
-
-    AcquireSpinLock(&ProbeManager.Lock, Error);
-
-    int Ret = __DiscoverProbes__();
+    int     Ret   = __DiscoverProbes__();
     if (Ret != SysOkay)
     {
-        ReleaseSpinLock(&ProbeManager.Lock, Error);
         PushError(
             "RefreshProbes", LOGPROBECOREC_PError, "cannot discover probes in RefreshProbes", Ret);
         return Ret;
@@ -299,7 +291,5 @@ RefreshProbes(void)
         }
         Cur = Cur->Next;
     }
-
-    ReleaseSpinLock(&ProbeManager.Lock, Error);
     return SysOkay;
 }

@@ -115,8 +115,6 @@ AddDriverToRegistry(DriverInfo* __Info__)
     NewDriver->PrivateData = NULL;
 
     /*Add to global driver list*/
-    AcquireSpinLock(&DriverManager.ManagerLock, Error);
-
     NewDriver->Next = DriverManager.AllDrivers;
     if (DriverManager.AllDrivers)
     {
@@ -132,21 +130,14 @@ AddDriverToRegistry(DriverInfo* __Info__)
 
         if (Registry->Type == __Info__->Type)
         {
-            AcquireSpinLock(&Registry->TypeLock, Error);
-
             if (Registry->DriverCount < MaxDriversPerType)
             {
                 Registry->Drivers[Registry->DriverCount] = NewDriver;
                 Registry->DriverCount++;
             }
-
-            ReleaseSpinLock(&Registry->TypeLock, Error);
             break;
         }
     }
-
-    ReleaseSpinLock(&DriverManager.ManagerLock, Error);
-
     LOGDRVREGC_PDebug("Added driver to registry: %s\n", __Info__->Name);
     return SysOkay;
 }
@@ -181,8 +172,6 @@ RemoveDriverFromRegistry(const char* __DriverName__)
 
     SysErr  err;
     SysErr* Error = &err;
-    AcquireSpinLock(&DriverManager.ManagerLock, Error);
-
     /*Remove from global list*/
     if (Driver->Prev)
     {
@@ -207,8 +196,6 @@ RemoveDriverFromRegistry(const char* __DriverName__)
 
         if (Registry->Type == Driver->Info.Type)
         {
-            AcquireSpinLock(&Registry->TypeLock, Error);
-
             for (uint32_t DriverIndex = 0; DriverIndex < Registry->DriverCount; DriverIndex++)
             {
                 if (Registry->Drivers[DriverIndex] == Driver)
@@ -223,14 +210,9 @@ RemoveDriverFromRegistry(const char* __DriverName__)
                     break;
                 }
             }
-
-            ReleaseSpinLock(&Registry->TypeLock, Error);
             break;
         }
     }
-
-    ReleaseSpinLock(&DriverManager.ManagerLock, Error);
-
     KFree(Driver, Error);
 
     LOGDRVREGC_PDebug("Removed driver from registry: %s\n", __DriverName__);
@@ -292,9 +274,6 @@ GetAllDrivers(uint32_t* __Count__)
                   Pointer_TO_Error(DriverArray));
         return Error_TO_Pointer(-BadAllocation);
     }
-
-    AcquireSpinLock(&DriverManager.ManagerLock, Error);
-
     uint32_t     Index   = 0;
     DriverEntry* Current = DriverManager.AllDrivers;
     while (Current && Index < DriverManager.TotalDrivers)
@@ -303,9 +282,6 @@ GetAllDrivers(uint32_t* __Count__)
         Current            = Current->Next;
         Index++;
     }
-
-    ReleaseSpinLock(&DriverManager.ManagerLock, Error);
-
     return DriverArray;
 }
 
@@ -319,12 +295,9 @@ GetLoadedDrivers(uint32_t* __Count__)
     }
 
     /*Count loaded drivers first*/
-    uint32_t LoadedCount = 0;
-    SysErr   err;
-    SysErr*  Error = &err;
-
-    AcquireSpinLock(&DriverManager.ManagerLock, Error);
-
+    uint32_t     LoadedCount = 0;
+    SysErr       err;
+    SysErr*      Error   = &err;
     DriverEntry* Current = DriverManager.AllDrivers;
     while (Current)
     {
@@ -337,7 +310,6 @@ GetLoadedDrivers(uint32_t* __Count__)
 
     if (LoadedCount == 0)
     {
-        ReleaseSpinLock(&DriverManager.ManagerLock, Error);
         *__Count__ = 0;
         PushError("GetLoadedDrivers", LOGDRVREGC_PError, "no drivers loaded", -NoSuch);
         return Error_TO_Pointer(-NoSuch);
@@ -346,7 +318,6 @@ GetLoadedDrivers(uint32_t* __Count__)
     DriverEntry** LoadedArray = (DriverEntry**)KMalloc(sizeof(DriverEntry*) * LoadedCount);
     if (Probe_IF_Error(LoadedArray) || !LoadedArray)
     {
-        ReleaseSpinLock(&DriverManager.ManagerLock, Error);
         PushError("GetLoadedDrivers",
                   LOGDRVREGC_PError,
                   "cannot allocate loaded driver array",
@@ -365,9 +336,6 @@ GetLoadedDrivers(uint32_t* __Count__)
         }
         Current = Current->Next;
     }
-
-    ReleaseSpinLock(&DriverManager.ManagerLock, Error);
-
     *__Count__ = LoadedCount;
     return LoadedArray;
 }
@@ -429,16 +397,12 @@ ScanDriverDirectory(void)
                 LOGDRVREGC_PWarn("non-.ko file: %s\n", Entry->Name);
                 continue;
             }
-
-            AcquireSpinLock(&DriverManager.ManagerLock, Error);
             char FullPath[DriverPathMaxLen];
             strcpy(FullPath, DirPath, sizeof(FullPath));
             strcpy(FullPath + strlen(FullPath), "/", sizeof(FullPath) - strlen(FullPath));
             strcpy(FullPath + strlen(FullPath), Entry->Name, sizeof(FullPath) - strlen(FullPath));
             DriverInfo Info;
             int        DefRes = GetDriverModuleInfo(FullPath, &Info);
-            ReleaseSpinLock(&DriverManager.ManagerLock, Error);
-
             if (DefRes == SysOkay)
             {
                 int AddRes = AddDriverToRegistry(&Info);
