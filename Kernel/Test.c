@@ -1,4 +1,53 @@
 #include "KrnCommon.h"
+#include <__AXEKCONF__.h>
+
+#ifdef LOGTESTC_Debug
+#    define LOGTESTC_PDebug(fmt, ...) PDebug("[KERNEL>>Test.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGTESTC_PDebug(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGTESTC_Logs
+#    define LOGTESTC_PError(fmt, ...) PError("[KERNEL>>Test.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGTESTC_PError(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGTESTC_Logs
+#    define LOGTESTC_PWarn(fmt, ...) PWarn("[KERNEL>>Test.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGTESTC_PWarn(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGTESTC_Logs
+#    define LOGTESTC_PInfo(fmt, ...) PInfo("[KERNEL>>Test.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGTESTC_PInfo(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGTESTC_Logs
+#    define LOGTESTC_PSuccess(fmt, ...) PSuccess("[KERNEL>>Test.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGTESTC_PSuccess(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+static SysErr  err;
+static SysErr* Error = &err;
 
 /*Proc test*/
 void
@@ -7,20 +56,20 @@ __TEST__Proc(void)
     PosixProc* Proc = PosixProcCreate();
     if (Probe_IF_Error(Proc) || !Proc)
     {
-        PError("failed to create proc, errno: %d\n", Pointer_TO_Error(Proc));
+        LOGTESTC_PError("failed to create proc, errno: %d\n", Pointer_TO_Error(Proc));
         InitComplete = false;
         return;
     }
 
-    PSuccess("Created process pid=%ld ppid=%ld\n", Proc->Pid, Proc->Ppid);
+    LOGTESTC_PSuccess("Created process pid=%ld ppid=%ld\n", Proc->Pid, Proc->Ppid);
 
     /* Execve test */
-    const char* argv[] = {"echo", "hello", NULL};
+    const char* argv[] = {"test", "test but shit", NULL};
     const char* envp[] = {NULL};
     int         Ret    = PosixProcExecve(Proc, "/Test.elf", argv, envp);
     if (Ret != SysOkay)
     {
-        PError("Execve failed for pid=%ld, Errno: %d\n", Proc->Pid, Ret);
+        LOGTESTC_PError("Execve failed for pid=%ld, Errno: %d\n", Proc->Pid, Ret);
         InitComplete = false;
     }
     else
@@ -29,30 +78,32 @@ __TEST__Proc(void)
     }
 }
 
-#define __SUBTEST__Thrd                                                                            \
-    1 /*change this if you wanna test absurd amount of threads (stress testing)*/
-
-/*Uncomment if you want tracing NOTE!: enable PDebug too in KrnPrintf Header!*/
-// #define __SUBTEST__ThrdTest
-
 void
 ThrdTest(void)
 {
-    uint32_t CPU = GetCurrentCpuId();
+    uint32_t CPU   = GetCurrentCpuId();
+    uint64_t Count = 0;
+    uint32_t Step  = __SUBTEST__ItLoops;
+
     for (;;)
     {
 #ifdef __SUBTEST__ThrdTest
-        PDebug("Thread test, CPUID: %ld, Tid: %ld\n", CPU, GetCurrentThread(CPU)->ThreadId);
+        if ((Count % Step) == 0)
+        {
+            LOGTESTC_PDebug("Thread test, CPUID: %u, Tid: %u, LoopCount: %llu\n",
+                            CPU,
+                            GetCurrentThread(CPU)->ThreadId,
+                            (unsigned long long)Count);
+        }
 #endif
+        Count++;
     }
 }
 
 void
 __TEST__Thrd(void)
 {
-    int     I = 0;
-    SysErr  err;
-    SysErr* Error = &err;
+    int I = 0;
 
     while (I < __SUBTEST__Thrd)
     {
@@ -62,6 +113,9 @@ __TEST__Thrd(void)
         {
             return;
         }
+
+        uint32_t TargetCpu = (uint32_t)(I % MaxCPUs);
+        SetThreadAffinity(T, (1u << (TargetCpu % 32)), NULL);
 
         ThreadExecute(T, Error);
         I++;

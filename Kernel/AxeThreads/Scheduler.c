@@ -1,9 +1,56 @@
 #include <AxeSchd.h>
 #include <AxeThreads.h>
 #include <IDT.h>
+#include <KrnPrintf.h>
 #include <PerCPUData.h>
 #include <Sync.h>
 #include <Timer.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGSCHEDULERC_Debug
+#    define LOGSCHEDULERC_PDebug(fmt, ...) PDebug("[KERNEL>>Scheduler.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSCHEDULERC_PDebug(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSCHEDULERC_Logs
+#    define LOGSCHEDULERC_PError(fmt, ...) PError("[KERNEL>>Scheduler.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSCHEDULERC_PError(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSCHEDULERC_Logs
+#    define LOGSCHEDULERC_PWarn(fmt, ...) PWarn("[KERNEL>>Scheduler.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSCHEDULERC_PWarn(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSCHEDULERC_Logs
+#    define LOGSCHEDULERC_PInfo(fmt, ...) PInfo("[KERNEL>>Scheduler.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSCHEDULERC_PInfo(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSCHEDULERC_Logs
+#    define LOGSCHEDULERC_PSuccess(fmt, ...) PSuccess("[KERNEL>>Scheduler.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSCHEDULERC_PSuccess(fmt, ...)                                                       \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 /*Multilevel Feedback Queue Scheduler (sort of)*/
 
@@ -39,7 +86,8 @@ AddThreadToPrioQueue(uint32_t __CpuId__, Thread* __ThreadPtr__, uint32_t __Prio_
 {
     if (__CpuId__ >= MaxCPUs || !__ThreadPtr__ || __Prio__ >= PRIO_MAX)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("AddThreadToPrioQueue", LOGSCHEDULERC_PError, "bad arguments", -BadArguments);
         return;
     }
 
@@ -72,7 +120,8 @@ AddThreadToReadyQueue(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Err__
 {
     if (__CpuId__ >= MaxCPUs || Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("AddThreadToReadyQueue", LOGSCHEDULERC_PError, "bad arguments", -BadArguments);
         return;
     }
 
@@ -85,7 +134,8 @@ RemoveThreadFromReadyQueue(uint32_t __CpuId__)
 {
     if (__CpuId__ >= MaxCPUs)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("RemoveThreadFromReadyQueue", LOGSCHEDULERC_PError, "bad cpu id", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     CpuScheduler* Schd = &CpuSchedulers[__CpuId__];
@@ -97,6 +147,10 @@ RemoveThreadFromReadyQueue(uint32_t __CpuId__)
         __atomic_store_n(&Schd->HighestPrio, NewHi, __ATOMIC_SEQ_CST);
         if (NewHi >= PRIO_MAX)
         {
+            PushError("RemoveThreadFromReadyQueue",
+                      LOGSCHEDULERC_PError,
+                      "ready queue is empty",
+                      -Dangling);
             return Error_TO_Pointer(-Dangling);
         }
         Hi = NewHi;
@@ -107,6 +161,8 @@ RemoveThreadFromReadyQueue(uint32_t __CpuId__)
 
     if (!Thrd)
     {
+        PushError(
+            "RemoveThreadFromReadyQueue", LOGSCHEDULERC_PError, "ready queue is empty", -Dangling);
         return Error_TO_Pointer(-Dangling);
     }
 
@@ -130,7 +186,8 @@ AddThreadToWaitingQueue(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Err
 {
     if (__CpuId__ >= MaxCPUs || Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("AddThreadToWaitingQueue", LOGSCHEDULERC_PError, "bad arguments", -BadArguments);
         return;
     }
 
@@ -153,7 +210,8 @@ AddThreadToZombieQueue(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Err_
 {
     if (__CpuId__ >= MaxCPUs || Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("AddThreadToZombieQueue", LOGSCHEDULERC_PError, "bad arguments", -BadArguments);
         return;
     }
 
@@ -178,7 +236,8 @@ AddThreadToSleepingQueue(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __Er
 {
     if (__CpuId__ >= MaxCPUs || Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("AddThreadToSleepingQueue", LOGSCHEDULERC_PError, "bad arguments", -BadArguments);
         return;
     }
 
@@ -201,7 +260,9 @@ RemoveThreadFromAllQueues(uint32_t __CpuId__, Thread* __ThreadPtr__, SysErr* __E
 {
     if (__CpuId__ >= MaxCPUs || !__ThreadPtr__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError(
+            "RemoveThreadFromAllQueues", LOGSCHEDULERC_PError, "bad arguments", -BadArguments);
         return;
     }
 
@@ -238,7 +299,8 @@ MigrateThreadToCpu(Thread* __ThreadPtr__, uint32_t __TargetCpuId__, SysErr* __Er
 {
     if (Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__ || __TargetCpuId__ >= MaxCPUs)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("MigrateThreadToCpu", LOGSCHEDULERC_PError, "bad arguments", -BadArguments);
         return;
     }
 
@@ -258,6 +320,7 @@ GetCpuThreadCount(uint32_t __CpuId__)
 {
     if (__CpuId__ >= MaxCPUs)
     {
+        PushError("GetCpuThreadCount", LOGSCHEDULERC_PError, "bad cpu id", -BadArguments);
         return Nothing;
     }
     return __atomic_load_n(&CpuSchedulers[__CpuId__].ThreadCount, __ATOMIC_SEQ_CST);
@@ -268,6 +331,7 @@ GetCpuReadyCount(uint32_t __CpuId__)
 {
     if (__CpuId__ >= MaxCPUs)
     {
+        PushError("GetCpuReadyCount", LOGSCHEDULERC_PError, "bad cpu id", -BadArguments);
         return Nothing;
     }
     return __atomic_load_n(&CpuSchedulers[__CpuId__].ReadyCount, __ATOMIC_SEQ_CST);
@@ -278,6 +342,7 @@ GetCpuContextSwitches(uint32_t __CpuId__)
 {
     if (__CpuId__ >= MaxCPUs)
     {
+        PushError("GetCpuContextSwitches", LOGSCHEDULERC_PError, "bad cpu id", -BadArguments);
         return Nothing;
     }
     return __atomic_load_n(&CpuSchedulers[__CpuId__].ContextSwitches, __ATOMIC_SEQ_CST);
@@ -288,6 +353,7 @@ GetCpuLoadAverage(uint32_t __CpuId__)
 {
     if (__CpuId__ >= MaxCPUs)
     {
+        PushError("GetCpuLoadAverage", LOGSCHEDULERC_PError, "bad cpu id", -BadArguments);
         return Nothing;
     }
     return __atomic_load_n(&CpuSchedulers[__CpuId__].LoadAverage, __ATOMIC_SEQ_CST);
@@ -298,7 +364,8 @@ WakeupSleepingThreads(uint32_t __CpuId__, SysErr* __Err__)
 {
     if (__CpuId__ >= MaxCPUs)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("WakeupSleepingThreads", LOGSCHEDULERC_PError, "bad cpu id", -BadArguments);
         return;
     }
 
@@ -360,7 +427,8 @@ CleanupZombieThreads(uint32_t __CpuId__, SysErr* __Err__)
 {
     if (__CpuId__ >= MaxCPUs)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("CleanupZombieThreads", LOGSCHEDULERC_PError, "bad cpu id", -BadArguments);
         return;
     }
 
@@ -382,7 +450,8 @@ InitializeCpuScheduler(uint32_t __CpuId__, SysErr* __Err__)
 {
     if (__CpuId__ >= MaxCPUs)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("InitializeCpuScheduler", LOGSCHEDULERC_PError, "bad cpu id", -BadArguments);
         return;
     }
 
@@ -398,8 +467,6 @@ InitializeCpuScheduler(uint32_t __CpuId__, SysErr* __Err__)
     __atomic_store_n(&Schd->SleepingQueue, NULL, __ATOMIC_SEQ_CST);
     __atomic_store_n(&Schd->CurrentThread, NULL, __ATOMIC_SEQ_CST);
     __atomic_store_n(&Schd->NextThread, NULL, __ATOMIC_SEQ_CST);
-    __atomic_store_n(&Schd->IdleThread, NULL, __ATOMIC_SEQ_CST);
-
     __atomic_store_n(&Schd->ThreadCount, 0, __ATOMIC_SEQ_CST);
     __atomic_store_n(&Schd->ReadyCount, 0, __ATOMIC_SEQ_CST);
     __atomic_store_n(&Schd->ContextSwitches, 0, __ATOMIC_SEQ_CST);
@@ -409,10 +476,9 @@ InitializeCpuScheduler(uint32_t __CpuId__, SysErr* __Err__)
     __atomic_store_n(&Schd->LastSchedule, 0, __ATOMIC_SEQ_CST);
     __atomic_store_n(&Schd->HighestPrio, PRIO_MAX, __ATOMIC_SEQ_CST);
     __atomic_store_n(&Schd->Priority, PRIO_USER_NORMAL, __ATOMIC_SEQ_CST);
-
     InitializeSpinLock(&Schd->SchedulerLock, "CpuScheduler", __Err__);
 
-    PDebug("CPU %u priority scheduler initialized\n", __CpuId__);
+    LOGSCHEDULERC_PDebug("CPU %u priority scheduler initialized\n", __CpuId__);
 }
 
 void
@@ -420,7 +486,9 @@ SaveInterruptFrameToThread(Thread* __ThreadPtr__, InterruptFrame* __Frame__, Sys
 {
     if (Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__ || Probe_IF_Error(__Frame__) || !__Frame__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError(
+            "SaveInterruptFrameToThread", LOGSCHEDULERC_PError, "bad arguments", -BadArguments);
         return;
     }
 
@@ -454,7 +522,11 @@ LoadThreadContextToInterruptFrame(Thread* __ThreadPtr__, InterruptFrame* __Frame
 {
     if (Probe_IF_Error(__ThreadPtr__) || !__ThreadPtr__ || Probe_IF_Error(__Frame__) || !__Frame__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("LoadThreadContextToInterruptFrame",
+                  LOGSCHEDULERC_PError,
+                  "bad arguments",
+                  -BadArguments);
         return;
     }
 
@@ -514,8 +586,8 @@ Schedule(uint32_t __CpuId__, InterruptFrame* __Frame__, SysErr* __Err__)
 {
     if (__CpuId__ >= MaxCPUs || Probe_IF_Error(__Frame__) || !__Frame__)
     {
-        PError("Bad Arguments to the Schedular, CPUID %u\n", __CpuId__);
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("Schedule", LOGSCHEDULERC_PError, "bad args", -BadArguments);
         return;
     }
 
@@ -632,8 +704,17 @@ Schedule(uint32_t __CpuId__, InterruptFrame* __Frame__, SysErr* __Err__)
         __atomic_store_n(&Schd->NextThread, NULL, __ATOMIC_SEQ_CST);
         __atomic_store_n(&Schd->CurrentThread, NULL, __ATOMIC_SEQ_CST);
         __atomic_fetch_add(&Schd->IdleTicks, 1, __ATOMIC_SEQ_CST);
-        SlotError(__Err__, -NoSuch);
-        return;
+        if (__atomic_load_n(&Schd->IdleThread, __ATOMIC_SEQ_CST))
+        {
+            __atomic_store_n(&Schd->NextThread, &Schd->IdleThread, __ATOMIC_SEQ_CST);
+            __atomic_store_n(&Schd->CurrentThread, &Schd->IdleThread, __ATOMIC_SEQ_CST);
+        }
+        else
+        {
+            SlotError(__Err__, -NoSuch);
+            PushError("Schedule", LOGSCHEDULERC_PError, "no thread to schedule", -NoSuch);
+            return;
+        }
     }
     else
     {
@@ -676,41 +757,52 @@ DumpCpuSchedulerInfo(uint32_t __CpuId__, SysErr* __Err__)
 {
     if (__CpuId__ >= MaxCPUs)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("DumpCpuSchedulerInfo", LOGSCHEDULERC_PError, "bad cpu id", -BadArguments);
         return;
     }
 
     CpuScheduler* Schd = &CpuSchedulers[__CpuId__];
 
-    PInfo("CPU %u Scheduler:\n", __CpuId__);
-    PInfo("  ThreadCount     : %u\n", __atomic_load_n(&Schd->ThreadCount, __ATOMIC_SEQ_CST));
-    PInfo("  ReadyCount      : %u\n", __atomic_load_n(&Schd->ReadyCount, __ATOMIC_SEQ_CST));
-    PInfo("  ContextSwitches : %llu\n", __atomic_load_n(&Schd->ContextSwitches, __ATOMIC_SEQ_CST));
-    PInfo("  IdleTicks       : %llu\n", __atomic_load_n(&Schd->IdleTicks, __ATOMIC_SEQ_CST));
-    PInfo("  LoadAverage     : %u\n", __atomic_load_n(&Schd->LoadAverage, __ATOMIC_SEQ_CST));
-    PInfo("  LastSchedule    : %llu\n", __atomic_load_n(&Schd->LastSchedule, __ATOMIC_SEQ_CST));
-    PInfo("  ScheduleTicks   : %llu\n", __atomic_load_n(&Schd->ScheduleTicks, __ATOMIC_SEQ_CST));
-    PInfo("  Priority        : %u\n", __atomic_load_n(&Schd->Priority, __ATOMIC_SEQ_CST));
-    PInfo("  HighestPrio     : %u\n", __atomic_load_n(&Schd->HighestPrio, __ATOMIC_SEQ_CST));
+    LOGSCHEDULERC_PInfo("CPU %u Scheduler:\n", __CpuId__);
+    LOGSCHEDULERC_PInfo("  ThreadCount     : %u\n",
+                        __atomic_load_n(&Schd->ThreadCount, __ATOMIC_SEQ_CST));
+    LOGSCHEDULERC_PInfo("  ReadyCount      : %u\n",
+                        __atomic_load_n(&Schd->ReadyCount, __ATOMIC_SEQ_CST));
+    LOGSCHEDULERC_PInfo("  ContextSwitches : %llu\n",
+                        __atomic_load_n(&Schd->ContextSwitches, __ATOMIC_SEQ_CST));
+    LOGSCHEDULERC_PInfo("  IdleTicks       : %llu\n",
+                        __atomic_load_n(&Schd->IdleTicks, __ATOMIC_SEQ_CST));
+    LOGSCHEDULERC_PInfo("  LoadAverage     : %u\n",
+                        __atomic_load_n(&Schd->LoadAverage, __ATOMIC_SEQ_CST));
+    LOGSCHEDULERC_PInfo("  LastSchedule    : %llu\n",
+                        __atomic_load_n(&Schd->LastSchedule, __ATOMIC_SEQ_CST));
+    LOGSCHEDULERC_PInfo("  ScheduleTicks   : %llu\n",
+                        __atomic_load_n(&Schd->ScheduleTicks, __ATOMIC_SEQ_CST));
+    LOGSCHEDULERC_PInfo("  Priority        : %u\n",
+                        __atomic_load_n(&Schd->Priority, __ATOMIC_SEQ_CST));
+    LOGSCHEDULERC_PInfo("  HighestPrio     : %u\n",
+                        __atomic_load_n(&Schd->HighestPrio, __ATOMIC_SEQ_CST));
 
     Thread* Current = __atomic_load_n(&Schd->CurrentThread, __ATOMIC_SEQ_CST);
     Thread* Nxt     = __atomic_load_n(&Schd->NextThread, __ATOMIC_SEQ_CST);
     Thread* Idle    = __atomic_load_n(&Schd->IdleThread, __ATOMIC_SEQ_CST);
 
-    PInfo("  CurrentThread   : %u (state=%d type=%d prio=%d)\n",
-          Current ? __atomic_load_n(&Current->ThreadId, __ATOMIC_SEQ_CST) : 0,
-          Current ? __atomic_load_n(&Current->State, __ATOMIC_SEQ_CST) : ThreadStateUnknown,
-          Current ? __atomic_load_n(&Current->Type, __ATOMIC_SEQ_CST) : ThreadTypeUnknown,
-          Current ? __atomic_load_n(&Current->Priority, __ATOMIC_SEQ_CST) : 0);
+    LOGSCHEDULERC_PInfo(
+        "  CurrentThread   : %u (state=%d type=%d prio=%d)\n",
+        Current ? __atomic_load_n(&Current->ThreadId, __ATOMIC_SEQ_CST) : 0,
+        Current ? __atomic_load_n(&Current->State, __ATOMIC_SEQ_CST) : ThreadStateUnknown,
+        Current ? __atomic_load_n(&Current->Type, __ATOMIC_SEQ_CST) : ThreadTypeUnknown,
+        Current ? __atomic_load_n(&Current->Priority, __ATOMIC_SEQ_CST) : 0);
 
-    PInfo("  NextThread      : %u (state=%d type=%d prio=%d)\n",
-          Nxt ? __atomic_load_n(&Nxt->ThreadId, __ATOMIC_SEQ_CST) : 0,
-          Nxt ? __atomic_load_n(&Nxt->State, __ATOMIC_SEQ_CST) : ThreadStateUnknown,
-          Nxt ? __atomic_load_n(&Nxt->Type, __ATOMIC_SEQ_CST) : ThreadTypeUnknown,
-          Nxt ? __atomic_load_n(&Nxt->Priority, __ATOMIC_SEQ_CST) : 0);
+    LOGSCHEDULERC_PInfo("  NextThread      : %u (state=%d type=%d prio=%d)\n",
+                        Nxt ? __atomic_load_n(&Nxt->ThreadId, __ATOMIC_SEQ_CST) : 0,
+                        Nxt ? __atomic_load_n(&Nxt->State, __ATOMIC_SEQ_CST) : ThreadStateUnknown,
+                        Nxt ? __atomic_load_n(&Nxt->Type, __ATOMIC_SEQ_CST) : ThreadTypeUnknown,
+                        Nxt ? __atomic_load_n(&Nxt->Priority, __ATOMIC_SEQ_CST) : 0);
 
-    PInfo("  IdleThread      : %u\n",
-          Idle ? __atomic_load_n(&Idle->ThreadId, __ATOMIC_SEQ_CST) : 0);
+    LOGSCHEDULERC_PInfo("  IdleThread      : %u\n",
+                        Idle ? __atomic_load_n(&Idle->ThreadId, __ATOMIC_SEQ_CST) : 0);
 
     for (uint32_t Prio = 0; Prio < PRIO_MAX; Prio++)
     {
@@ -721,14 +813,15 @@ DumpCpuSchedulerInfo(uint32_t __CpuId__, SysErr* __Err__)
             int     Idx  = 0;
             while (Thrd)
             {
-                PInfo("    Ready[Prio=%u][%d]: tid=%u pid=%u state=%d rip=0x%llx rsp=0x%llx\n",
-                      Prio,
-                      Idx,
-                      __atomic_load_n(&Thrd->ThreadId, __ATOMIC_SEQ_CST),
-                      __atomic_load_n(&Thrd->ProcessId, __ATOMIC_SEQ_CST),
-                      __atomic_load_n(&Thrd->State, __ATOMIC_SEQ_CST),
-                      (unsigned long long)__atomic_load_n(&Thrd->Context.Rip, __ATOMIC_SEQ_CST),
-                      (unsigned long long)__atomic_load_n(&Thrd->Context.Rsp, __ATOMIC_SEQ_CST));
+                LOGSCHEDULERC_PInfo(
+                    "    Ready[Prio=%u][%d]: tid=%u pid=%u state=%d rip=0x%llx rsp=0x%llx\n",
+                    Prio,
+                    Idx,
+                    __atomic_load_n(&Thrd->ThreadId, __ATOMIC_SEQ_CST),
+                    __atomic_load_n(&Thrd->ProcessId, __ATOMIC_SEQ_CST),
+                    __atomic_load_n(&Thrd->State, __ATOMIC_SEQ_CST),
+                    (unsigned long long)__atomic_load_n(&Thrd->Context.Rip, __ATOMIC_SEQ_CST),
+                    (unsigned long long)__atomic_load_n(&Thrd->Context.Rsp, __ATOMIC_SEQ_CST));
                 Thrd = __atomic_load_n(&Thrd->Next, __ATOMIC_SEQ_CST);
                 Idx++;
             }
@@ -759,5 +852,5 @@ InitializeScheduler(SysErr* __Err__)
         InitializeCpuScheduler(CpuIndex, __Err__);
     }
 
-    PSuccess("Scheduler initialized for %u CPUs\n", Smp.CpuCount);
+    LOGSCHEDULERC_PSuccess("Scheduler initialized for %u CPUs\n", Smp.CpuCount);
 }

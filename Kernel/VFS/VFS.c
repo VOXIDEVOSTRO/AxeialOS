@@ -3,6 +3,52 @@
 #include <KrnPrintf.h>
 #include <String.h>
 #include <VFS.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGVFSC_Debug
+#    define LOGVFSC_PDebug(fmt, ...) PDebug("[KERNEL>>VFS.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVFSC_PDebug(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVFSC_Logs
+#    define LOGVFSC_PError(fmt, ...) PError("[KERNEL>>VFS.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVFSC_PError(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVFSC_Logs
+#    define LOGVFSC_PWarn(fmt, ...) PWarn("[KERNEL>>VFS.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVFSC_PWarn(fmt, ...)                                                                \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVFSC_Logs
+#    define LOGVFSC_PInfo(fmt, ...) PInfo("[KERNEL>>VFS.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVFSC_PInfo(fmt, ...)                                                                \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVFSC_Logs
+#    define LOGVFSC_PSuccess(fmt, ...) PSuccess("[KERNEL>>VFS.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVFSC_PSuccess(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 /*extremely unix-like VFS*/
 
@@ -53,6 +99,7 @@ __next_comp__(const char* __Path, char* __Output, long __Cap)
 {
     if (Probe_IF_Error(__Path) || !__Path || !*__Path)
     {
+        PushError("__next_comp__", LOGVFSC_PError, "no more components in path", Nothing);
         return Nothing;
     }
     const char* s = __Path;
@@ -75,7 +122,8 @@ __alloc_dentry__(const char* __Name__, Dentry* __Parent__, Vnode* __Node__)
     Dentry* De = (Dentry*)KMalloc(sizeof(Dentry));
     if (Probe_IF_Error(De) || !De)
     {
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("__alloc_dentry__", LOGVFSC_PError, "failed to allocate dentry", -BadAllocation);
+        return Error_TO_Pointer(-BadAllocation);
     }
 
     De->Name   = __Name__;
@@ -90,6 +138,7 @@ __walk__(Vnode* __StartNode__, Dentry* __StartDe__, const char* __Path__)
 {
     if (Probe_IF_Error(__StartNode__) || !__StartNode__ || Probe_IF_Error(__Path__) || !__Path__)
     {
+        PushError("__walk__", LOGVFSC_PError, "bad arguments", -NotCanonical);
         return Error_TO_Pointer(-NotCanonical);
     }
     const char* __Path = __Path__;
@@ -115,23 +164,34 @@ __walk__(Vnode* __StartNode__, Dentry* __StartDe__, const char* __Path__)
         if (Probe_IF_Error(Cur) || !Cur || Probe_IF_Error(Cur->Ops) || !Cur->Ops ||
             Probe_IF_Error(Cur->Ops->Lookup) || !Cur->Ops->Lookup)
         {
+            PushError("__walk__", LOGVFSC_PError, "cannot lookup on current vnode", -NoOperations);
             return Error_TO_Pointer(-NoOperations);
         }
         Vnode* Next = Cur->Ops->Lookup(Cur, Comp);
         if (Probe_IF_Error(Next) || !Next)
         {
+            PushError(
+                "__walk__", LOGVFSC_PError, "failed to lookup component in path", -CannotLookup);
             return Error_TO_Pointer(-CannotLookup);
         }
         char* Dup = (char*)KMalloc((size_t)(N + 1));
         if (Probe_IF_Error(Dup) || !Dup)
         {
-            return Error_TO_Pointer(-BadAlloc);
+            PushError("__walk__",
+                      LOGVFSC_PError,
+                      "failed to allocate memory for component duplicate",
+                      -BadAllocation);
+            return Error_TO_Pointer(-BadAllocation);
         }
         memcpy(Dup, Comp, (size_t)(N + 1));
         Dentry* De = __alloc_dentry__(Dup, Parent, Next);
         if (Probe_IF_Error(De) || !De)
         {
-            return Error_TO_Pointer(-BadAlloc);
+            PushError("__walk__",
+                      LOGVFSC_PError,
+                      "failed to allocate dentry for component",
+                      -BadAllocation);
+            return Error_TO_Pointer(-BadAllocation);
         }
 
         Parent = De;
@@ -143,8 +203,8 @@ __walk__(Vnode* __StartNode__, Dentry* __StartDe__, const char* __Path__)
 static __MountEntry__*
 __find_mount__(const char* __Path__)
 {
-    long Best    = -1;
-    long BestLen = -1;
+    long Best    = SysErro;
+    long BestLen = SysErro;
     for (long I = 0; I < __MountCount__; I++)
     {
         const char* Mp = __Mounts__[I].Path;
@@ -186,7 +246,7 @@ VfsInit(void)
     __IoBlockSize__    = 0;
     __DefaultFs__[0]   = 0;
 
-    PDebug("Init\n");
+    LOGVFSC_PDebug("Init\n");
     ReleaseMutex(&VfsLock, Error);
     return SysOkay;
 }
@@ -218,7 +278,7 @@ VfsShutdown(void)
     __RootNode__   = 0;
     __RootDe__     = 0;
 
-    PDebug("Shutdown\n");
+    LOGVFSC_PDebug("Shutdown\n");
 
     ReleaseMutex(&VfsLock, Error);
     return SysOkay;
@@ -235,12 +295,15 @@ VfsRegisterFs(const FsType* __FsType__)
         !__FsType__->Name || Probe_IF_Error(__FsType__->Mount) || !__FsType__->Mount)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError(
+            "VfsRegisterFs", LOGVFSC_PError, "bad filesystem type to register", -BadArguments);
+        return -BadArguments;
     }
 
     if (__FsCount__ >= __MaxFsTypes__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsRegisterFs", LOGVFSC_PError, "too many filesystems registered", -TooMany);
         return -TooMany;
     }
 
@@ -248,14 +311,18 @@ VfsRegisterFs(const FsType* __FsType__)
     {
         if (strcmp(__FsReg__[I]->Name, __FsType__->Name) == 0)
         {
-            PWarn("FileSystem exists %s\n", __FsType__->Name);
             ReleaseMutex(&VfsLock, Error);
+            LOGVFSC_PWarn("FileSystem exists %s\n", __FsType__->Name);
+            PushError("VfsRegisterFs",
+                      LOGVFSC_PError,
+                      "filesystem already registered",
+                      -Redefined); /*We don't need this ig*/
             return -Redefined;
         }
     }
 
     __FsReg__[__FsCount__++] = __FsType__;
-    PDebug("FileSystem registered %s\n", __FsType__->Name);
+    LOGVFSC_PDebug("FileSystem registered %s\n", __FsType__->Name);
     ReleaseMutex(&VfsLock, Error);
 
     return SysOkay;
@@ -271,7 +338,9 @@ VfsUnregisterFs(const char* __Name__)
     if (Probe_IF_Error(__Name__) || !__Name__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError(
+            "VfsUnregisterFs", LOGVFSC_PError, "bad filesystem name to unregister", -BadArguments);
+        return -BadArguments;
     }
 
     for (long I = 0; I < __FsCount__; I++)
@@ -283,13 +352,13 @@ VfsUnregisterFs(const char* __Name__)
                 __FsReg__[J] = __FsReg__[J + 1];
             }
             __FsReg__[--__FsCount__] = 0;
-            PDebug("FileSystem unregistered %s\n", __Name__);
+            LOGVFSC_PDebug("FileSystem unregistered %s\n", __Name__);
             return SysOkay;
         }
     }
 
-    PError("FileSystem not found %s\n", __Name__);
     ReleaseMutex(&VfsLock, Error);
+    PushError("VfsUnregisterFs", LOGVFSC_PError, "filesystem not found to unregister", -NoSuch);
     return -NoSuch;
 }
 
@@ -298,7 +367,8 @@ VfsFindFs(const char* __Name__)
 {
     if (Probe_IF_Error(__Name__) || !__Name__)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("VfsFindFs", LOGVFSC_PError, "bad filesystem name to find", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     for (long I = 0; I < __FsCount__; I++)
@@ -309,6 +379,7 @@ VfsFindFs(const char* __Name__)
         }
     }
 
+    PushError("VfsFindFs", LOGVFSC_PError, "filesystem not found", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }
 
@@ -321,7 +392,8 @@ VfsListFs(const char** __Out__, long __Cap__)
     if (Probe_IF_Error(__Out__) || !__Out__ || __Cap__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsListFs", LOGVFSC_PError, "bad arguments to VfsListFs", -BadArguments);
+        return -BadArguments;
     }
 
     long N = (__FsCount__ < __Cap__) ? __FsCount__ : __Cap__;
@@ -331,6 +403,7 @@ VfsListFs(const char** __Out__, long __Cap__)
     }
 
     ReleaseMutex(&VfsLock, Error);
+    PushError("VfsListFs", LOGVFSC_PError, "listed filesystems", SysOkay);
     return N;
 }
 
@@ -347,28 +420,38 @@ VfsMount(const char*    __Dev__,
     const FsType* Fs = VfsFindFs(__Type__);
     if (Probe_IF_Error(Fs) || !Fs)
     {
+        ReleaseMutex(&VfsLock, Error);
+        PushError("VfsMount", LOGVFSC_PError, "filesystem type not found", -BadEntity);
         return Error_TO_Pointer(-BadEntity);
     }
 
     if (Probe_IF_Error(__Path__) || !__Path__ || !*__Path__)
     {
+        ReleaseMutex(&VfsLock, Error);
+        PushError("VfsMount", LOGVFSC_PError, "bad mount path", -NotCanonical);
         return Error_TO_Pointer(-NotCanonical);
     }
 
     long Plen = (long)strlen(__Path__);
     if (Plen <= 0 || Plen >= __MaxPath__)
     {
+        ReleaseMutex(&VfsLock, Error);
+        PushError("VfsMount", LOGVFSC_PError, "mount path too long", -Limits);
         return Error_TO_Pointer(-Limits);
     }
 
     if (__MountCount__ >= __MaxMounts__)
     {
+        ReleaseMutex(&VfsLock, Error);
+        PushError("VfsMount", LOGVFSC_PError, "too many mounts", -TooMany);
         return Error_TO_Pointer(-TooMany);
     }
 
     Superblock* Sb = Fs->Mount(__Dev__, __Opts__);
     if (Probe_IF_Error(Sb) || !Sb || Probe_IF_Error(Sb->Root) || !Sb->Root)
     {
+        ReleaseMutex(&VfsLock, Error);
+        PushError("VfsMount", LOGVFSC_PError, "failed to mount filesystem", -NotRooted);
         return Error_TO_Pointer(-NotRooted);
     }
 
@@ -380,10 +463,10 @@ VfsMount(const char*    __Dev__,
     {
         __RootNode__ = Sb->Root;
         __RootDe__   = __alloc_dentry__("/", 0, __RootNode__);
-        PDebug("Root mounted /\n");
+        LOGVFSC_PDebug("Root mounted /\n");
     }
 
-    PDebug("Mounted %s at %s\n", __Type__, __Path__);
+    LOGVFSC_PDebug("Mounted %s at %s\n", __Type__, __Path__);
 
     ReleaseMutex(&VfsLock, Error);
     return Sb;
@@ -399,6 +482,7 @@ VfsUnmount(const char* __Path__)
     if (Probe_IF_Error(__Path__) || !__Path__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsUnmount", LOGVFSC_PError, "bad unmount path", -NotCanonical);
         return -NotCanonical;
     }
 
@@ -429,12 +513,13 @@ VfsUnmount(const char* __Path__)
                 __RootNode__ = 0;
                 __RootDe__   = 0;
             }
-            PDebug("Unmounted %s\n", __Path__);
+            LOGVFSC_PDebug("Unmounted %s\n", __Path__);
             return SysOkay;
         }
     }
 
     ReleaseMutex(&VfsLock, Error);
+    PushError("VfsUnmount", LOGVFSC_PError, "filesystem not found", -NoSuch);
     return -NoSuch;
 }
 
@@ -448,6 +533,7 @@ VfsSwitchRoot(const char* __NewRoot__)
     if (Probe_IF_Error(__NewRoot__) || !__NewRoot__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsSwitchRoot", LOGVFSC_PError, "bad chroot path", -NotRooted);
         return -NotRooted;
     }
 
@@ -455,12 +541,14 @@ VfsSwitchRoot(const char* __NewRoot__)
     if (Probe_IF_Error(De) || !De || Probe_IF_Error(De->Node) || !De->Node)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError(
+            "VfsSwitchRoot", LOGVFSC_PError, "failed to resolve new root path", -CannotLookup);
         return -CannotLookup;
     }
 
     __RootNode__ = De->Node;
     __RootDe__   = De;
-    PDebug("Chrooted to %s\n", __NewRoot__);
+    LOGVFSC_PDebug("Chrooted to %s\n", __NewRoot__);
     ReleaseMutex(&VfsLock, Error);
     return SysOkay;
 }
@@ -474,19 +562,22 @@ VfsBindMount(const char* __Src__, const char* __Dst__)
     if (Probe_IF_Error(__Src__) || !__Src__ || Probe_IF_Error(__Dst__) || !__Dst__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsBindMount", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     __MountEntry__* M = __find_mount__(__Src__);
     if (Probe_IF_Error(M) || !M || Probe_IF_Error(M->Sb) || !M->Sb)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsBindMount", LOGVFSC_PError, "filesystem not found", -NoSuch);
         return -NoSuch;
     }
 
     if (__MountCount__ >= __MaxMounts__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsBindMount", LOGVFSC_PError, "too many mounts", -TooMany);
         return -TooMany;
     }
 
@@ -494,14 +585,15 @@ VfsBindMount(const char* __Src__, const char* __Dst__)
     if (N <= 0 || N >= __MaxPath__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -Dangling;
+        PushError("VfsBindMount", LOGVFSC_PError, "destination path too long", -Limits);
+        return -Limits;
     }
 
     __MountEntry__* New = &__Mounts__[__MountCount__++];
     New->Sb             = M->Sb;
     memcpy(New->Path, __Dst__, (size_t)(N + 1));
 
-    PDebug("Bind mount %s -> %s\n", __Src__, __Dst__);
+    LOGVFSC_PDebug("Bind mount %s -> %s\n", __Src__, __Dst__);
     ReleaseMutex(&VfsLock, Error);
 
     return SysOkay;
@@ -516,13 +608,15 @@ VfsMoveMount(const char* __Src__, const char* __Dst__)
     if (Probe_IF_Error(__Src__) || !__Src__ || Probe_IF_Error(__Dst__) || !__Dst__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsMoveMount", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     __MountEntry__* M = __find_mount__(__Src__);
     if (Probe_IF_Error(M) || !M || Probe_IF_Error(M->Sb) || !M->Sb)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsMoveMount", LOGVFSC_PError, "filesystem not found", -NoSuch);
         return -NoSuch;
     }
 
@@ -530,11 +624,12 @@ VfsMoveMount(const char* __Src__, const char* __Dst__)
     if (N <= 0 || N >= __MaxPath__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsMoveMount", LOGVFSC_PError, "destination path too long", -Limits);
         return -Dangling;
     }
 
     memcpy(M->Path, __Dst__, (size_t)(N + 1));
-    PDebug("Move mount %s -> %s\n", __Src__, __Dst__);
+    LOGVFSC_PDebug("Move mount %s -> %s\n", __Src__, __Dst__);
     ReleaseMutex(&VfsLock, Error);
     return SysOkay;
 }
@@ -550,6 +645,7 @@ VfsRemount(const char* __Path__, long __Flags__ _unused, const char* __Opts__ _u
     if (Probe_IF_Error(M) || !M || Probe_IF_Error(M->Sb) || !M->Sb)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsRemount", LOGVFSC_PError, "filesystem not found", -NoSuch);
         return -NoSuch;
     }
 
@@ -567,12 +663,14 @@ VfsResolve(const char* __Path__)
     if (Probe_IF_Error(__Path__) || !__Path__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsResolve", LOGVFSC_PError, "bad resolve path", -NotCanonical);
         return Error_TO_Pointer(-NotCanonical);
     }
 
     if (Probe_IF_Error(__RootNode__) || !__RootNode__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsResolve", LOGVFSC_PError, "no root filesystem mounted", -NotRooted);
         return Error_TO_Pointer(-NotRooted);
     }
 
@@ -614,7 +712,7 @@ VfsResolve(const char* __Path__)
     if (!*Tail)
     {
         Dentry* De = __alloc_dentry__(Mp, __RootDe__, M->Sb->Root);
-        return De ? De : Error_TO_Pointer(-BadAlloc);
+        return De ? De : Error_TO_Pointer(-BadAllocation);
     }
 
     ReleaseMutex(&VfsLock, Error);
@@ -632,6 +730,7 @@ VfsResolveAt(Dentry* __Base__, const char* __Rel__)
         !__Base__->Node || Probe_IF_Error(__Rel__) || !__Rel__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsResolveAt", LOGVFSC_PError, "bad arguments", -BadArguments);
         return Error_TO_Pointer(-Dangling);
     }
 
@@ -659,13 +758,15 @@ VfsLookup(Dentry* __Base__, const char* __Name__)
         !__Base__->Node || Probe_IF_Error(__Name__) || !__Name__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return Error_TO_Pointer(-BadArgs);
+        PushError("VfsLookup", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     if (Probe_IF_Error(__Base__->Node->Ops) || !__Base__->Node->Ops ||
         Probe_IF_Error(__Base__->Node->Ops->Lookup) || !__Base__->Node->Ops->Lookup)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsLookup", LOGVFSC_PError, "operation not supported", -NoOperations);
         return Error_TO_Pointer(-NoOperations);
     }
 
@@ -682,6 +783,7 @@ VfsMkpath(const char* __Path__, long __Perm__)
     if (Probe_IF_Error(__Path__) || !__Path__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsMkpath", LOGVFSC_PError, "bad makepath path", -NotCanonical);
         return -NotCanonical;
     }
     const char* p = __Path__;
@@ -714,18 +816,25 @@ VfsMkpath(const char* __Path__, long __Perm__)
                 !Cur->Ops->Mkdir)
             {
                 ReleaseMutex(&VfsLock, Error);
+                PushError("VfsMkpath", LOGVFSC_PError, "operation not supported", -NoOperations);
                 return -NoOperations;
             }
             VfsPerm perm = {.Mode = __Perm__, .Uid = 0, .Gid = 0};
-            if (Cur->Ops->Mkdir(Cur, Comp, perm) != 0)
+            if (Cur->Ops->Mkdir(Cur, Comp, perm) != SysOkay)
             {
                 ReleaseMutex(&VfsLock, Error);
-                return -ErrReturn;
+                PushError(
+                    "VfsMkpath", LOGVFSC_PError, "failed to create directory in path", -BadReturn);
+                return -BadReturn;
             }
             Next = Cur->Ops->Lookup(Cur, Comp);
             if (Probe_IF_Error(Next) || !Next)
             {
                 ReleaseMutex(&VfsLock, Error);
+                PushError("VfsMkpath",
+                          LOGVFSC_PError,
+                          "failed to lookup newly created directory",
+                          -CannotLookup);
                 return -CannotLookup;
             }
         }
@@ -748,13 +857,15 @@ VfsRealpath(const char* __Path__, char* __Buf__, long __Len__)
         __Len__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsRealpath", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     long L = (long)strlen(__Path__);
     if (L >= __Len__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsRealpath", LOGVFSC_PError, "buffer too small for realpath", -TooBig);
         return -TooBig;
     }
     memcpy(__Buf__, __Path__, (size_t)(L + 1));
@@ -772,6 +883,7 @@ VfsOpen(const char* __Path__, long __Flags__)
     if (Probe_IF_Error(De) || !De || Probe_IF_Error(De->Node) || !De->Node)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsOpen", LOGVFSC_PError, "failed to resolve path for open", -BadEntity);
         return Error_TO_Pointer(-BadEntity);
     }
 
@@ -779,6 +891,7 @@ VfsOpen(const char* __Path__, long __Flags__)
         !De->Node->Ops->Open)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsOpen", LOGVFSC_PError, "operation not supported", -NoOperations);
         return Error_TO_Pointer(-NoOperations);
     }
 
@@ -786,7 +899,8 @@ VfsOpen(const char* __Path__, long __Flags__)
     if (Probe_IF_Error(F) || !F)
     {
         ReleaseMutex(&VfsLock, Error);
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("VfsOpen", LOGVFSC_PError, "failed to allocate file structure", -BadAllocation);
+        return Error_TO_Pointer(-BadAllocation);
     }
 
     F->Node   = De->Node;
@@ -798,10 +912,12 @@ VfsOpen(const char* __Path__, long __Flags__)
     if (De->Node->Ops->Open(De->Node, F) != SysOkay)
     {
         KFree(F, Error);
-        return Error_TO_Pointer(-ErrReturn);
+        ReleaseMutex(&VfsLock, Error);
+        PushError("VfsOpen", LOGVFSC_PError, "failed to open file", -BadReturn);
+        return Error_TO_Pointer(-BadReturn);
     }
 
-    PDebug("Open %s\n", __Path__);
+    LOGVFSC_PDebug("Open %s\n", __Path__);
     ReleaseMutex(&VfsLock, Error);
     return F;
 }
@@ -816,6 +932,7 @@ VfsOpenAt(Dentry* __Base__, const char* __Rel__, long __Flags__)
     if (Probe_IF_Error(De) || !De || Probe_IF_Error(De->Node) || !De->Node)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsOpenAt", LOGVFSC_PError, "failed to resolve path", -BadEntity);
         return Error_TO_Pointer(-BadEntity);
     }
 
@@ -823,6 +940,7 @@ VfsOpenAt(Dentry* __Base__, const char* __Rel__, long __Flags__)
         !De->Node->Ops->Open)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsOpenAt", LOGVFSC_PError, "operation not supported", -NoOperations);
         return Error_TO_Pointer(-NoOperations);
     }
 
@@ -830,7 +948,8 @@ VfsOpenAt(Dentry* __Base__, const char* __Rel__, long __Flags__)
     if (Probe_IF_Error(F) || !F)
     {
         ReleaseMutex(&VfsLock, Error);
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("VfsOpenAt", LOGVFSC_PError, "failed to allocate file structure", -BadAllocation);
+        return Error_TO_Pointer(-BadAllocation);
     }
 
     F->Node   = De->Node;
@@ -842,7 +961,9 @@ VfsOpenAt(Dentry* __Base__, const char* __Rel__, long __Flags__)
     if (De->Node->Ops->Open(De->Node, F) != SysOkay)
     {
         KFree(F, Error);
-        return Error_TO_Pointer(-ErrReturn);
+        ReleaseMutex(&VfsLock, Error);
+        PushError("VfsOpenAt", LOGVFSC_PError, "failed to open file", -BadReturn);
+        return Error_TO_Pointer(-BadReturn);
     }
 
     ReleaseMutex(&VfsLock, Error);
@@ -859,7 +980,8 @@ VfsClose(File* __File__)
     if (Probe_IF_Error(__File__) || !__File__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsClose", LOGVFSC_PError, "bad file to close", -BadArguments);
+        return -BadArguments;
     }
 
     if (__File__->Node && __File__->Node->Ops && __File__->Node->Ops->Close)
@@ -882,7 +1004,8 @@ VfsRead(File* __File__, void* __Buf__, long __Len__)
         __Len__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsRead", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     if (Probe_IF_Error(__File__->Node) || !__File__->Node || Probe_IF_Error(__File__->Node->Ops) ||
@@ -890,6 +1013,7 @@ VfsRead(File* __File__, void* __Buf__, long __Len__)
         !__File__->Node->Ops->Read)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsRead", LOGVFSC_PError, "read operation not supported", -NoOperations);
         return -NoOperations;
     }
 
@@ -912,7 +1036,8 @@ VfsWrite(File* __File__, const void* __Buf__, long __Len__)
         __Len__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsWrite", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     if (Probe_IF_Error(__File__->Node) || !__File__->Node || Probe_IF_Error(__File__->Node->Ops) ||
@@ -920,6 +1045,7 @@ VfsWrite(File* __File__, const void* __Buf__, long __Len__)
         !__File__->Node->Ops->Write)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsWrite", LOGVFSC_PError, "write operation not supported", -NoOperations);
         return -NoOperations;
     }
 
@@ -941,7 +1067,8 @@ VfsLseek(File* __File__, long __Off__, int __Whence__)
     if (Probe_IF_Error(__File__) || !__File__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadEntity;
+        PushError("VfsLseek", LOGVFSC_PError, "bad file", -BadArguments);
+        return -BadArguments;
     }
 
     if (Probe_IF_Error(__File__->Node) || !__File__->Node || Probe_IF_Error(__File__->Node->Ops) ||
@@ -949,6 +1076,7 @@ VfsLseek(File* __File__, long __Off__, int __Whence__)
         !__File__->Node->Ops->Lseek)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsLseek", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
 
@@ -970,7 +1098,8 @@ VfsIoctl(File* __File__, unsigned long __Cmd__, void* __Arg__)
     if (Probe_IF_Error(__File__) || !__File__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadEntity;
+        PushError("VfsIoctl", LOGVFSC_PError, "bad file", -BadArguments);
+        return -BadArguments;
     }
 
     if (Probe_IF_Error(__File__->Node) || !__File__->Node || Probe_IF_Error(__File__->Node->Ops) ||
@@ -978,6 +1107,7 @@ VfsIoctl(File* __File__, unsigned long __Cmd__, void* __Arg__)
         !__File__->Node->Ops->Ioctl)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsIoctl", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
 
@@ -995,12 +1125,14 @@ VfsFsync(File* __File__)
         !__File__->Node || Probe_IF_Error(__File__->Node->Ops) || !__File__->Node->Ops)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsFsync", LOGVFSC_PError, "bad file", -BadArguments);
+        return -BadArguments;
     }
 
     if (Probe_IF_Error(__File__->Node->Ops->Sync) || !__File__->Node->Ops->Sync)
     {
-        return SysOkay;
+        ReleaseMutex(&VfsLock, Error);
+        return SysOkay; /*Its fine*/
     }
 
     ReleaseMutex(&VfsLock, Error);
@@ -1016,7 +1148,8 @@ VfsFstats(File* __File__, VfsStat* __Buf__)
     if (Probe_IF_Error(__File__) || !__File__ || Probe_IF_Error(__Buf__) || !__Buf__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsFstats", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     if (Probe_IF_Error(__File__->Node) || !__File__->Node || Probe_IF_Error(__File__->Node->Ops) ||
@@ -1024,6 +1157,7 @@ VfsFstats(File* __File__, VfsStat* __Buf__)
         !__File__->Node->Ops->Stat)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsFstats", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
 
@@ -1040,13 +1174,15 @@ VfsStats(const char* __Path__, VfsStat* __Buf__)
     if (Probe_IF_Error(__Path__) || !__Path__ || Probe_IF_Error(__Buf__) || !__Buf__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsStats", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     Dentry* De = VfsResolve(__Path__);
     if (Probe_IF_Error(De) || !De || Probe_IF_Error(De->Node) || !De->Node)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsStats", LOGVFSC_PError, "failed to resolve path for stats", -Dangling);
         return -Dangling;
     }
 
@@ -1054,6 +1190,7 @@ VfsStats(const char* __Path__, VfsStat* __Buf__)
         !De->Node->Ops->Stat)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsStats", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
 
@@ -1072,13 +1209,15 @@ VfsReaddir(const char* __Path__, void* __Buf__, long __BufLen__)
         __BufLen__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsReaddir", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     Dentry* De = VfsResolve(__Path__);
     if (Probe_IF_Error(De) || !De || Probe_IF_Error(De->Node) || !De->Node)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsReaddir", LOGVFSC_PError, "failed to resolve path", -Dangling);
         return -Dangling;
     }
 
@@ -1086,6 +1225,7 @@ VfsReaddir(const char* __Path__, void* __Buf__, long __BufLen__)
         !De->Node->Ops->Readdir)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsReaddir", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
 
@@ -1103,7 +1243,8 @@ VfsReaddirF(File* __Dir__, void* __Buf__, long __BufLen__)
         __BufLen__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsReaddirF", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     if (Probe_IF_Error(__Dir__->Node) || !__Dir__->Node || Probe_IF_Error(__Dir__->Node->Ops) ||
@@ -1111,12 +1252,15 @@ VfsReaddirF(File* __Dir__, void* __Buf__, long __BufLen__)
         !__Dir__->Node->Ops->Readdir)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsReaddirF", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
 
     ReleaseMutex(&VfsLock, Error);
     return __Dir__->Node->Ops->Readdir(__Dir__->Node, __Buf__, __BufLen__);
 }
+
+/*PART1*/
 
 int
 VfsCreate(const char* __Path__, long __Flags__, VfsPerm __Perm__)
@@ -1129,6 +1273,7 @@ VfsCreate(const char* __Path__, long __Flags__, VfsPerm __Perm__)
     if (Probe_IF_Error(__Path__) || !__Path__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsCreate", LOGVFSC_PError, "bad create path", -NotCanonical);
         return -NotCanonical;
     }
     const char* __Path = __Path__;
@@ -1159,26 +1304,37 @@ VfsCreate(const char* __Path__, long __Flags__, VfsPerm __Perm__)
             Probe_IF_Error(Cur->Ops->Lookup) || !Cur->Ops->Lookup)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError("VfsCreate", LOGVFSC_PError, "operation not supported", -NoOperations);
             return -NoOperations;
         }
         Vnode* Next = Cur->Ops->Lookup(Cur, Name);
         if (Probe_IF_Error(Next) || !Next)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError(
+                "VfsCreate", LOGVFSC_PError, "cannot lookup component in path", -CannotLookup);
             return -CannotLookup;
         }
         char* Dup = (char*)KMalloc((size_t)(N + 1));
         if (Probe_IF_Error(Dup) || !Dup)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsCreate",
+                      LOGVFSC_PError,
+                      "failed to allocate memory for component name",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         memcpy(Dup, Name, (size_t)(N + 1));
         De = __alloc_dentry__(Dup, De, Next);
         if (Probe_IF_Error(De) || !De)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsCreate",
+                      LOGVFSC_PError,
+                      "failed to allocate dentry for component",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         Cur = Next;
     }
@@ -1187,6 +1343,7 @@ VfsCreate(const char* __Path__, long __Flags__, VfsPerm __Perm__)
         Probe_IF_Error(Parent->Node->Ops->Create) || !Parent->Node->Ops->Create)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsCreate", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
     ReleaseMutex(&VfsLock, Error);
@@ -1204,6 +1361,7 @@ VfsUnlink(const char* __Path__)
     if (Probe_IF_Error(__Path__) || !__Path__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsUnlink", LOGVFSC_PError, "bad unlink path", -NotCanonical);
         return -NotCanonical;
     }
     const char* __Path = __Path__;
@@ -1234,26 +1392,37 @@ VfsUnlink(const char* __Path__)
             Probe_IF_Error(Cur->Ops->Lookup) || !Cur->Ops->Lookup)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError("VfsUnlink", LOGVFSC_PError, "operation not supported", -NoOperations);
             return -NoOperations;
         }
         Vnode* Next = Cur->Ops->Lookup(Cur, Name);
         if (Probe_IF_Error(Next) || !Next)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError(
+                "VfsUnlink", LOGVFSC_PError, "cannot lookup component in path", -CannotLookup);
             return -CannotLookup;
         }
         char* Dup = (char*)KMalloc((size_t)(N + 1));
         if (Probe_IF_Error(Dup) || !Dup)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsUnlink",
+                      LOGVFSC_PError,
+                      "failed to allocate memory for component name",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         memcpy(Dup, Name, (size_t)(N + 1));
         De = __alloc_dentry__(Dup, De, Next);
         if (Probe_IF_Error(De) || !De)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsUnlink",
+                      LOGVFSC_PError,
+                      "failed to allocate dentry for component",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         Cur = Next;
     }
@@ -1262,6 +1431,7 @@ VfsUnlink(const char* __Path__)
         Probe_IF_Error(Base->Node->Ops->Unlink) || !Base->Node->Ops->Unlink)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsUnlink", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
     ReleaseMutex(&VfsLock, Error);
@@ -1279,6 +1449,7 @@ VfsMkdir(const char* __Path__, VfsPerm __Perm__)
     if (Probe_IF_Error(__Path__) || !__Path__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsMkdir", LOGVFSC_PError, "bad mkdir path", -NotCanonical);
         return -NotCanonical;
     }
     const char* __PathCur = __Path__;
@@ -1309,26 +1480,36 @@ VfsMkdir(const char* __Path__, VfsPerm __Perm__)
             Probe_IF_Error(Cur->Ops->Lookup) || !Cur->Ops->Lookup)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError("VfsMkdir", LOGVFSC_PError, "operation not supported", -NoOperations);
             return -NoOperations;
         }
         Vnode* Next = Cur->Ops->Lookup(Cur, Name);
         if (Probe_IF_Error(Next) || !Next)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError("VfsMkdir", LOGVFSC_PError, "cannot lookup component in path", -CannotLookup);
             return -CannotLookup;
         }
         char* Dup = (char*)KMalloc((size_t)(N + 1));
         if (Probe_IF_Error(Dup) || !Dup)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsMkdir",
+                      LOGVFSC_PError,
+                      "failed to allocate memory for component name",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         memcpy(Dup, Name, (size_t)(N + 1));
         De = __alloc_dentry__(Dup, De, Next);
         if (Probe_IF_Error(De) || !De)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsMkdir",
+                      LOGVFSC_PError,
+                      "failed to allocate dentry for component",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         Cur = Next;
     }
@@ -1337,6 +1518,7 @@ VfsMkdir(const char* __Path__, VfsPerm __Perm__)
         Probe_IF_Error(Base->Node->Ops->Mkdir) || !Base->Node->Ops->Mkdir)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsMkdir", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
     ReleaseMutex(&VfsLock, Error);
@@ -1354,6 +1536,7 @@ VfsRmdir(const char* __Path__)
     if (Probe_IF_Error(__Path__) || !__Path__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsRmdir", LOGVFSC_PError, "bad rmdir path", -NotCanonical);
         return -NotCanonical;
     }
     const char* p = __Path__;
@@ -1384,12 +1567,14 @@ VfsRmdir(const char* __Path__)
             Probe_IF_Error(Cur->Ops->Lookup) || !Cur->Ops->Lookup)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError("VfsRmdir", LOGVFSC_PError, "operation not supported", -NoOperations);
             return -NoOperations;
         }
         Vnode* Next = Cur->Ops->Lookup(Cur, Name);
         if (Probe_IF_Error(Next) || !Next)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError("VfsRmdir", LOGVFSC_PError, "cannot lookup component in path", -CannotLookup);
             return -CannotLookup;
         }
         char* Dup = (char*)KMalloc(N + 1);
@@ -1402,6 +1587,7 @@ VfsRmdir(const char* __Path__)
         Probe_IF_Error(Base->Node->Ops->Rmdir) || !Base->Node->Ops->Rmdir)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsRmdir", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
     ReleaseMutex(&VfsLock, Error);
@@ -1419,6 +1605,7 @@ VfsSymlink(const char* __Target__, const char* __LinkPath__, VfsPerm __Perm__)
     if (Probe_IF_Error(__LinkPath__) || !__LinkPath__ || Probe_IF_Error(__Target__) || !__Target__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsSymlink", LOGVFSC_PError, "bad symlink path", -NotCanonical);
         return -NotCanonical;
     }
     const char* __Path = __LinkPath__;
@@ -1449,26 +1636,37 @@ VfsSymlink(const char* __Target__, const char* __LinkPath__, VfsPerm __Perm__)
             Probe_IF_Error(Cur->Ops->Lookup) || !Cur->Ops->Lookup)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError("VfsSymlink", LOGVFSC_PError, "operation not supported", -NoOperations);
             return -NoOperations;
         }
         Vnode* Next = Cur->Ops->Lookup(Cur, Name);
         if (Probe_IF_Error(Next) || !Next)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError(
+                "VfsSymlink", LOGVFSC_PError, "cannot lookup component in path", -CannotLookup);
             return -CannotLookup;
         }
         char* Dup = (char*)KMalloc((size_t)(N + 1));
         if (Probe_IF_Error(Dup) || !Dup)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsSymlink",
+                      LOGVFSC_PError,
+                      "failed to allocate memory for component name",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         memcpy(Dup, Name, (size_t)(N + 1));
         De = __alloc_dentry__(Dup, De, Next);
         if (Probe_IF_Error(De) || !De)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsSymlink",
+                      LOGVFSC_PError,
+                      "failed to allocate dentry for component",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         Cur = Next;
     }
@@ -1477,6 +1675,7 @@ VfsSymlink(const char* __Target__, const char* __LinkPath__, VfsPerm __Perm__)
         Probe_IF_Error(Base->Node->Ops->Symlink) || !Base->Node->Ops->Symlink)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsSymlink", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
     ReleaseMutex(&VfsLock, Error);
@@ -1493,19 +1692,22 @@ VfsReadlink(const char* __Path__, char* __Buf__, long __Len__)
         __Len__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsReadlink", LOGVFSC_PError, "bad arguments to VfsReadlink", -BadArguments);
+        return -BadArguments;
     }
 
     Dentry* De = VfsResolve(__Path__);
     if (Probe_IF_Error(De) || !De || Probe_IF_Error(De->Node) || !De->Node)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsReadlink", LOGVFSC_PError, "failed to resolve path for readlink", -Dangling);
         return -Dangling;
     }
     if (Probe_IF_Error(De->Node->Ops) || !De->Node->Ops ||
         Probe_IF_Error(De->Node->Ops->Readlink) || !De->Node->Ops->Readlink)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsReadlink", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
 
@@ -1525,6 +1727,7 @@ VfsLink(const char* __OldPath__, const char* __NewPath__)
     if (Probe_IF_Error(__OldPath__) || !__OldPath__ || Probe_IF_Error(__NewPath__) || !__NewPath__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsLink", LOGVFSC_PError, "bad link paths", -NotCanonical);
         return -NotCanonical;
     }
 
@@ -1535,6 +1738,7 @@ VfsLink(const char* __OldPath__, const char* __NewPath__)
     if (Probe_IF_Error(OldDe) || !OldDe || Probe_IF_Error(OldDe->Node) || !OldDe->Node)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsLink", LOGVFSC_PError, "failed to resolve old path", -Dangling);
         return -Dangling;
     }
 
@@ -1566,26 +1770,36 @@ VfsLink(const char* __OldPath__, const char* __NewPath__)
             Probe_IF_Error(Cur->Ops->Lookup) || !Cur->Ops->Lookup)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError("VfsLink", LOGVFSC_PError, "operation not supported", -NoOperations);
             return -NoOperations;
         }
         Vnode* Next = Cur->Ops->Lookup(Cur, Name);
         if (Probe_IF_Error(Next) || !Next)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError("VfsLink", LOGVFSC_PError, "cannot lookup component in path", -CannotLookup);
             return -CannotLookup;
         }
         char* Dup = (char*)KMalloc((size_t)(N + 1));
         if (Probe_IF_Error(Dup) || !Dup)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsLink",
+                      LOGVFSC_PError,
+                      "failed to allocate memory for component name",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         memcpy(Dup, Name, (size_t)(N + 1));
         De = __alloc_dentry__(Dup, De, Next);
         if (Probe_IF_Error(De) || !De)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsLink",
+                      LOGVFSC_PError,
+                      "failed to allocate dentry for component",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         Cur = Next;
     }
@@ -1595,6 +1809,7 @@ VfsLink(const char* __OldPath__, const char* __NewPath__)
         Probe_IF_Error(NewBase->Node->Ops->Link) || !NewBase->Node->Ops->Link)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsLink", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
     ReleaseMutex(&VfsLock, Error);
@@ -1615,6 +1830,7 @@ VfsRename(const char* __OldPath__, const char* __NewPath__, long __Flags__)
     if (Probe_IF_Error(__OldPath__) || !__OldPath__ || Probe_IF_Error(__NewPath__) || !__NewPath__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsRename", LOGVFSC_PError, "bad rename paths", -NotCanonical);
         return -NotCanonical;
     }
 
@@ -1646,26 +1862,37 @@ VfsRename(const char* __OldPath__, const char* __NewPath__, long __Flags__)
             Probe_IF_Error(CurO->Ops->Lookup) || !CurO->Ops->Lookup)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError("VfsRename", LOGVFSC_PError, "operation not supported", -NoOperations);
             return -NoOperations;
         }
         Vnode* Next = CurO->Ops->Lookup(CurO, OldName);
         if (Probe_IF_Error(Next) || !Next)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError(
+                "VfsRename", LOGVFSC_PError, "cannot lookup component in path", -CannotLookup);
             return -CannotLookup;
         }
         char* Dup = (char*)KMalloc((size_t)(N + 1));
         if (Probe_IF_Error(Dup) || !Dup)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsRename",
+                      LOGVFSC_PError,
+                      "failed to allocate memory for component name",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         memcpy(Dup, OldName, (size_t)(N + 1));
         DeO = __alloc_dentry__(Dup, DeO, Next);
         if (Probe_IF_Error(DeO) || !DeO)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsRename",
+                      LOGVFSC_PError,
+                      "failed to allocate dentry for component",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         CurO = Next;
     }
@@ -1698,26 +1925,37 @@ VfsRename(const char* __OldPath__, const char* __NewPath__, long __Flags__)
             Probe_IF_Error(CurN->Ops->Lookup) || !CurN->Ops->Lookup)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError("VfsRename", LOGVFSC_PError, "operation not supported", -NoOperations);
             return -NoOperations;
         }
         Vnode* Next = CurN->Ops->Lookup(CurN, NewName);
         if (Probe_IF_Error(Next) || !Next)
         {
             ReleaseMutex(&VfsLock, Error);
+            PushError(
+                "VfsRename", LOGVFSC_PError, "cannot lookup component in path", -CannotLookup);
             return -CannotLookup;
         }
         char* Dup = (char*)KMalloc((size_t)(N + 1));
         if (Probe_IF_Error(Dup) || !Dup)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsRename",
+                      LOGVFSC_PError,
+                      "failed to allocate memory for component name",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         memcpy(Dup, NewName, (size_t)(N + 1));
         DeN = __alloc_dentry__(Dup, DeN, Next);
         if (Probe_IF_Error(DeN) || !DeN)
         {
             ReleaseMutex(&VfsLock, Error);
-            return -BadAlloc;
+            PushError("VfsRename",
+                      LOGVFSC_PError,
+                      "failed to allocate dentry for component",
+                      -BadAllocation);
+            return -BadAllocation;
         }
         CurN = Next;
     }
@@ -1725,18 +1963,21 @@ VfsRename(const char* __OldPath__, const char* __NewPath__, long __Flags__)
     if (Probe_IF_Error(OldBase) || !OldBase || Probe_IF_Error(NewBase) || !NewBase)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsRename", LOGVFSC_PError, "failed to resolve paths for rename", -Dangling);
         return -Dangling;
     }
     if (Probe_IF_Error(OldBase->Node) || !OldBase->Node || Probe_IF_Error(NewBase->Node) ||
         !NewBase->Node)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsRename", LOGVFSC_PError, "failed to resolve nodes for rename", -Dangling);
         return -Dangling;
     }
     if (Probe_IF_Error(OldBase->Node->Ops) || !OldBase->Node->Ops ||
         Probe_IF_Error(OldBase->Node->Ops->Rename) || !OldBase->Node->Ops->Rename)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsRename", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
     ReleaseMutex(&VfsLock, Error);
@@ -1753,12 +1994,14 @@ VfsChmod(const char* __Path__, long __Mode__)
     if (Probe_IF_Error(De) || !De || Probe_IF_Error(De->Node) || !De->Node)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsChmod", LOGVFSC_PError, "failed to resolve path for chmod", -Dangling);
         return -Dangling;
     }
     if (Probe_IF_Error(De->Node->Ops) || !De->Node->Ops || Probe_IF_Error(De->Node->Ops->Chmod) ||
         !De->Node->Ops->Chmod)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsChmod", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
     ReleaseMutex(&VfsLock, Error);
@@ -1775,12 +2018,14 @@ VfsChown(const char* __Path__, long __Uid__, long __Gid__)
     if (Probe_IF_Error(De) || !De || Probe_IF_Error(De->Node) || !De->Node)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsChown", LOGVFSC_PError, "failed to resolve path", -Dangling);
         return -Dangling;
     }
     if (Probe_IF_Error(De->Node->Ops) || !De->Node->Ops || Probe_IF_Error(De->Node->Ops->Chown) ||
         !De->Node->Ops->Chown)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsChown", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
     ReleaseMutex(&VfsLock, Error);
@@ -1797,12 +2042,14 @@ VfsTruncate(const char* __Path__, long __Len__)
     if (Probe_IF_Error(De) || !De || Probe_IF_Error(De->Node) || !De->Node)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsTruncate", LOGVFSC_PError, "failed to resolve path", -Dangling);
         return -Dangling;
     }
     if (Probe_IF_Error(De->Node->Ops) || !De->Node->Ops ||
         Probe_IF_Error(De->Node->Ops->Truncate) || !De->Node->Ops->Truncate)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsTruncate", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
     ReleaseMutex(&VfsLock, Error);
@@ -1818,7 +2065,8 @@ VnodeRefInc(Vnode* __Node__)
     if (Probe_IF_Error(__Node__) || !__Node__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VnodeRefInc", LOGVFSC_PError, "bad vnode for ref increment", -BadArguments);
+        return -BadArguments;
     }
     __Node__->Refcnt++;
     ReleaseMutex(&VfsLock, Error);
@@ -1834,7 +2082,8 @@ VnodeRefDec(Vnode* __Node__)
     if (Probe_IF_Error(__Node__) || !__Node__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VnodeRefDec", LOGVFSC_PError, "bad vnode for ref decrement", -BadArguments);
+        return -BadArguments;
     }
     if (__Node__->Refcnt > 0)
     {
@@ -1853,12 +2102,14 @@ VnodeGetAttr(Vnode* __Node__, VfsStat* __Buf__)
     if (Probe_IF_Error(__Node__) || !__Node__ || Probe_IF_Error(__Buf__) || !__Buf__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VnodeGetAttr", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     if (Probe_IF_Error(__Node__->Ops) || !__Node__->Ops || Probe_IF_Error(__Node__->Ops->Stat) ||
         !__Node__->Ops->Stat)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VnodeGetAttr", LOGVFSC_PError, "operation not supported", -NoOperations);
         return -NoOperations;
     }
     ReleaseMutex(&VfsLock, Error);
@@ -1868,6 +2119,7 @@ VnodeGetAttr(Vnode* __Node__, VfsStat* __Buf__)
 int
 VnodeSetAttr(Vnode* __Node__ _unused, const VfsStat* __Buf__ _unused)
 {
+    PushError("VnodeSetAttr", LOGVFSC_PError, "operation not supported", -Impilict);
     return -Impilict;
 }
 
@@ -1880,7 +2132,8 @@ DentryInvalidate(Dentry* __De__)
     if (Probe_IF_Error(__De__) || !__De__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("DentryInvalidate", LOGVFSC_PError, "bad dentry for invalidate", -BadArguments);
+        return -BadArguments;
     }
     __De__->Flags |= 1;
     ReleaseMutex(&VfsLock, Error);
@@ -1896,7 +2149,8 @@ DentryRevalidate(Dentry* __De__)
     if (Probe_IF_Error(__De__) || !__De__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("DentryRevalidate", LOGVFSC_PError, "bad dentry for revalidate", -BadArguments);
+        return -BadArguments;
     }
     __De__->Flags &= ~1;
     ReleaseMutex(&VfsLock, Error);
@@ -1912,7 +2166,8 @@ DentryAttach(Dentry* __De__, Vnode* __Node__)
     if (Probe_IF_Error(__De__) || !__De__ || Probe_IF_Error(__Node__) || !__Node__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("DentryAttach", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     __De__->Node = __Node__;
     ReleaseMutex(&VfsLock, Error);
@@ -1928,7 +2183,8 @@ DentryDetach(Dentry* __De__)
     if (Probe_IF_Error(__De__) || !__De__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("DentryDetach", LOGVFSC_PError, "bad dentry for detach", -BadArguments);
+        return -BadArguments;
     }
     __De__->Node = 0;
     ReleaseMutex(&VfsLock, Error);
@@ -1944,12 +2200,14 @@ DentryName(Dentry* __De__, char* __Buf__, long __Len__)
     if (Probe_IF_Error(__De__) || !__De__ || Probe_IF_Error(__Buf__) || !__Buf__ || __Len__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("DentryName", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     long N = (long)strlen(__De__->Name);
     if (N >= __Len__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("DentryName", LOGVFSC_PError, "buffer too small for dentry name", -TooBig);
         return -TooBig;
     }
     memcpy(__Buf__, __De__->Name, (size_t)(N + 1));
@@ -1972,13 +2230,15 @@ VfsGetCwd(char* __Buf__, long __Len__)
     if (Probe_IF_Error(__Buf__) || !__Buf__ || __Len__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsGetCwd", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     const char* __Path = "/";
     long        N      = (long)strlen(__Path);
     if (N >= __Len__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsGetCwd", LOGVFSC_PError, "buffer too small for cwd path", -TooBig);
         return -TooBig;
     }
     memcpy(__Buf__, __Path, (size_t)(N + 1));
@@ -2001,13 +2261,15 @@ VfsGetRoot(char* __Buf__, long __Len__)
     if (Probe_IF_Error(__Buf__) || !__Buf__ || __Len__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsGetRoot", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     const char* __Path = "/";
     long        N      = (long)strlen(__Path);
     if (N >= __Len__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsGetRoot", LOGVFSC_PError, "buffer too small for root path", -TooBig);
         return -TooBig;
     }
     memcpy(__Buf__, __Path, (size_t)(N + 1));
@@ -2053,7 +2315,8 @@ VfsNotifyPoll(const char* __Path__ _unused, long* __OutMask__)
     if (Probe_IF_Error(__OutMask__) || !__OutMask__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadEntity;
+        PushError("VfsNotifyPoll", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     *__OutMask__ = 0;
     ReleaseMutex(&VfsLock, Error);
@@ -2069,11 +2332,13 @@ VfsAccess(const char* __Path__, long __Mode__ _unused)
     Dentry* De = VfsResolve(__Path__);
     ReleaseMutex(&VfsLock, Error);
 
-    if (Probe_IF_Error(De))
+    if (Probe_IF_Error(De) || !De)
     {
+        PushError("VfsAccess", LOGVFSC_PError, "failed to resolve path for access", -Dangling);
         return -Dangling;
     }
-    return Nothing;
+
+    return SysOkay;
 }
 
 int
@@ -2087,6 +2352,7 @@ VfsExists(const char* __Path__)
 
     if (Probe_IF_Error(De) || !De)
     {
+        PushError("VfsExists", LOGVFSC_PError, "failed to resolve path for exists", -NoSuch);
         return -NoSuch;
     }
     return SysOkay;
@@ -2103,6 +2369,7 @@ VfsIsDir(const char* __Path__)
 
     if (Probe_IF_Error(De) || !De || Probe_IF_Error(De->Node) || !De->Node)
     {
+        PushError("VfsIsDir", LOGVFSC_PError, "failed to resolve path for isdir", -NoSuch);
         return -NoSuch;
     }
     return (De->Node->Type == VNodeDIR) ? SysOkay : -NoSuch;
@@ -2119,6 +2386,7 @@ VfsIsFile(const char* __Path__)
 
     if (Probe_IF_Error(De) || !De || Probe_IF_Error(De->Node) || !De->Node)
     {
+        PushError("VfsIsFile", LOGVFSC_PError, "failed to resolve path for isfile", -NoSuch);
         return -NoSuch;
     }
     return (De->Node->Type == VNodeFILE) ? SysOkay : -NoSuch;
@@ -2135,6 +2403,7 @@ VfsIsSymlink(const char* __Path__)
 
     if (Probe_IF_Error(De) || !De || Probe_IF_Error(De->Node) || !De->Node)
     {
+        PushError("VfsIsSymlink", LOGVFSC_PError, "failed to resolve path for issymlink", -NoSuch);
         return -NoSuch;
     }
     return (De->Node->Type == VNodeSYM) ? SysOkay : -NoSuch;
@@ -2151,6 +2420,7 @@ VfsCopy(const char* __Src__, const char* __Dst__, long __Flags__ _unused)
     if (Probe_IF_Error(S) || !S)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsCopy", LOGVFSC_PError, "failed to open source file for copy", -BadEntity);
         return -BadEntity;
     }
     File* D = VfsOpen(__Dst__, VFlgCREATE | VFlgWRONLY | VFlgTRUNC);
@@ -2158,6 +2428,8 @@ VfsCopy(const char* __Src__, const char* __Dst__, long __Flags__ _unused)
     {
         VfsClose(S);
         ReleaseMutex(&VfsLock, Error);
+        PushError(
+            "VfsCopy", LOGVFSC_PError, "failed to open destination file for copy", -BadEntity);
         return -BadEntity;
     }
 
@@ -2170,7 +2442,9 @@ VfsCopy(const char* __Src__, const char* __Dst__, long __Flags__ _unused)
             VfsClose(S);
             VfsClose(D);
             ReleaseMutex(&VfsLock, Error);
-            return -NoRead;
+            PushError(
+                "VfsCopy", LOGVFSC_PError, "failed to read from source file during copy", -BadRead);
+            return -BadRead;
         }
         if (r == 0)
         {
@@ -2182,7 +2456,11 @@ VfsCopy(const char* __Src__, const char* __Dst__, long __Flags__ _unused)
             VfsClose(S);
             VfsClose(D);
             ReleaseMutex(&VfsLock, Error);
-            return -NoWrite;
+            PushError("VfsCopy",
+                      LOGVFSC_PError,
+                      "failed to write to destination file during copy",
+                      -BadWrite);
+            return -BadWrite;
         }
     }
 
@@ -2201,13 +2479,15 @@ VfsMove(const char* __Src__, const char* __Dst__, long __Flags__)
     int rc = VfsRename(__Src__, __Dst__, __Flags__);
     if (rc == SysOkay)
     {
+        ReleaseMutex(&VfsLock, Error);
         return SysOkay;
     }
     rc = VfsCopy(__Src__, __Dst__, __Flags__);
     if (rc != SysOkay)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -ErrReturn;
+        PushError("VfsMove", LOGVFSC_PError, "failed to copy file during move", -BadReturn);
+        return -BadReturn;
     }
     ReleaseMutex(&VfsLock, Error);
     return VfsUnlink(__Src__);
@@ -2223,6 +2503,7 @@ VfsReadAll(const char* __Path__, void* __Buf__, long __BufLen__, long* __OutLen_
     if (Probe_IF_Error(F) || !F)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsReadAll", LOGVFSC_PError, "failed to open file for readall", -BadEntity);
         return -BadEntity;
     }
     long total = 0;
@@ -2233,7 +2514,9 @@ VfsReadAll(const char* __Path__, void* __Buf__, long __BufLen__, long* __OutLen_
         {
             VfsClose(F);
             ReleaseMutex(&VfsLock, Error);
-            return -NoRead;
+            PushError(
+                "VfsReadAll", LOGVFSC_PError, "failed to read from file during readall", -BadRead);
+            return -BadRead;
         }
         if (r == 0)
         {
@@ -2260,6 +2543,7 @@ VfsWriteAll(const char* __Path__, const void* __Buf__, long __Len__)
     if (Probe_IF_Error(F) || !F)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsWriteAll", LOGVFSC_PError, "failed to open file for writeall", -BadEntity);
         return -BadEntity;
     }
     long total = 0;
@@ -2270,7 +2554,11 @@ VfsWriteAll(const char* __Path__, const void* __Buf__, long __Len__)
         {
             VfsClose(F);
             ReleaseMutex(&VfsLock, Error);
-            return -NoRead;
+            PushError("VfsWriteAll",
+                      LOGVFSC_PError,
+                      "failed to write to file during writeall",
+                      -BadWrite);
+            return -BadWrite;
         }
         total += w;
     }
@@ -2288,7 +2576,8 @@ VfsMountTableEnumerate(char* __Buf__, long __Len__)
     if (Probe_IF_Error(__Buf__) || !__Buf__ || __Len__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsMountTableEnumerate", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     long off = 0;
     for (long I = 0; I < __MountCount__; I++)
@@ -2321,7 +2610,8 @@ VfsMountTableFind(const char* __Path__, char* __Buf__, long __Len__)
         __Len__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsMountTableFind", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     for (long I = 0; I < __MountCount__; I++)
     {
@@ -2331,13 +2621,19 @@ VfsMountTableFind(const char* __Path__, char* __Buf__, long __Len__)
             if (N >= __Len__)
             {
                 ReleaseMutex(&VfsLock, Error);
+                PushError("VfsMountTableFind",
+                          LOGVFSC_PError,
+                          "buffer too small for mount path",
+                          -TooBig);
                 return -TooBig;
             }
             memcpy(__Buf__, __Mounts__[I].Path, (size_t)(N + 1));
+            ReleaseMutex(&VfsLock, Error);
             return SysOkay;
         }
     }
     ReleaseMutex(&VfsLock, Error);
+    PushError("VfsMountTableFind", LOGVFSC_PError, "mount point not found", -NoSuch);
     return -NoSuch;
 }
 
@@ -2350,13 +2646,15 @@ VfsNodePath(Vnode* __Node__ _unused, char* __Buf__, long __Len__)
     if (Probe_IF_Error(__Buf__) || !__Buf__ || __Len__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsNodePath", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     const char* __Path = "/";
     long        N      = (long)strlen(__Path);
     if (N >= __Len__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsNodePath", LOGVFSC_PError, "buffer too small for node path", -TooBig);
         return -TooBig;
     }
     memcpy(__Buf__, __Path, (size_t)(N + 1));
@@ -2373,13 +2671,15 @@ VfsNodeName(Vnode* __Node__ _unused, char* __Buf__, long __Len__)
     if (Probe_IF_Error(__Buf__) || !__Buf__ || __Len__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsNodeName", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     const char* __Path = "";
     long        N      = (long)strlen(__Path);
     if (N >= __Len__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsNodeName", LOGVFSC_PError, "buffer too small for node name", -TooBig);
         return -TooBig;
     }
     memcpy(__Buf__, __Path, (size_t)(N + 1));
@@ -2396,7 +2696,8 @@ VfsAllocName(char** __Out__, long __Len__)
     if (Probe_IF_Error(__Out__) || !__Out__ || __Len__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsAllocName", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     *__Out__ = (char*)KMalloc((size_t)__Len__);
     ReleaseMutex(&VfsLock, Error);
@@ -2412,7 +2713,8 @@ VfsFreeName(char* __Name__)
     if (Probe_IF_Error(__Name__) || !__Name__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsFreeName", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     KFree(__Name__, Error);
     ReleaseMutex(&VfsLock, Error);
@@ -2429,7 +2731,8 @@ VfsJoinPath(const char* __A__, const char* __B__, char* __Out__, long __Len__)
         Probe_IF_Error(__Out__) || !__Out__ || __Len__ <= 0)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsJoinPath", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     long la   = (long)strlen(__A__);
     long lb   = (long)strlen(__B__);
@@ -2437,6 +2740,7 @@ VfsJoinPath(const char* __A__, const char* __B__, char* __Out__, long __Len__)
     if (need > __Len__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsJoinPath", LOGVFSC_PError, "buffer too small for joined path", -TooBig);
         return -TooBig;
     }
     memcpy(__Out__, __A__, (size_t)la);
@@ -2498,7 +2802,8 @@ VfsRegisterDevNode(const char* __Path__, void* __Priv__, long __Flags__)
     if (Probe_IF_Error(__Path__) || !__Path__ || Probe_IF_Error(__Priv__) || !__Priv__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsRegisterDevNode", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     /* Ensure parent directory exists */
@@ -2508,6 +2813,7 @@ VfsRegisterDevNode(const char* __Path__, void* __Priv__, long __Flags__)
     if (Probe_IF_Error(Name) || !Name)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsRegisterDevNode", LOGVFSC_PError, "bad device node path", -NotCanonical);
         return -NotCanonical;
     }
     long nlen = (long)strlen(Name + 1);
@@ -2523,7 +2829,11 @@ VfsRegisterDevNode(const char* __Path__, void* __Priv__, long __Flags__)
     if (Probe_IF_Error(Node) || !Node)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadAlloc;
+        PushError("VfsRegisterDevNode",
+                  LOGVFSC_PError,
+                  "failed to allocate vnode for device node",
+                  -BadAllocation);
+        return -BadAllocation;
     }
     Node->Type   = VNodeDEV;
     Node->Ops    = (VnodeOps*)__Priv__; /* device ops table */
@@ -2538,10 +2848,14 @@ VfsRegisterDevNode(const char* __Path__, void* __Priv__, long __Flags__)
     {
         KFree(Node, Error);
         ReleaseMutex(&VfsLock, Error);
-        return -BadAlloc;
+        PushError("VfsRegisterDevNode",
+                  LOGVFSC_PError,
+                  "failed to allocate dentry for device node",
+                  -BadAllocation);
+        return -BadAllocation;
     }
 
-    PDebug("Registered devnode %s\n", __Path__);
+    LOGVFSC_PDebug("Registered devnode %s\n", __Path__);
     ReleaseMutex(&VfsLock, Error);
     return SysOkay;
 }
@@ -2561,11 +2875,14 @@ VfsRegisterPseudoFs(const char* __Path__, Superblock* __Sb__)
     if (Probe_IF_Error(__Path__) || !__Path__ || Probe_IF_Error(__Sb__) || !__Sb__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsRegisterPseudoFs", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     if (__MountCount__ >= __MaxMounts__)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError(
+            "VfsRegisterPseudoFs", LOGVFSC_PError, "maximum number of mounts reached", -TooMany);
         return -TooMany;
     }
     long            N = (long)strlen(__Path__);
@@ -2591,12 +2908,15 @@ VfsSetDefaultFs(const char* __Name__)
     if (Probe_IF_Error(__Name__) || !__Name__)
     {
         ReleaseMutex(&VfsLock, Error);
-        return -BadArgs;
+        PushError("VfsSetDefaultFs", LOGVFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     long N = (long)strlen(__Name__);
     if (N >= (long)sizeof(__DefaultFs__))
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError(
+            "VfsSetDefaultFs", LOGVFSC_PError, "filesystem name too long for default fs", -TooBig);
         return -TooBig;
     }
     memcpy(__DefaultFs__, __Name__, (size_t)(N + 1));
@@ -2619,6 +2939,7 @@ VfsSetMaxName(long __Len__)
     if (__Len__ < 1)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsSetMaxName", LOGVFSC_PError, "maximum name length too small", -TooSmall);
         return -TooSmall;
     }
     __MaxName__ = __Len__;
@@ -2641,6 +2962,7 @@ VfsSetMaxPath(long __Len__)
     if (__Len__ < 1)
     {
         ReleaseMutex(&VfsLock, Error);
+        PushError("VfsSetMaxPath", LOGVFSC_PError, "maximum path length too small", -TooSmall);
         return -TooSmall;
     }
     __MaxPath__ = __Len__;

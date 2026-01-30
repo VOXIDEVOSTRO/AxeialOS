@@ -6,6 +6,52 @@
 #include <String.h>
 #include <Sync.h>
 #include <VFS.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGPROCFDC_Debug
+#    define LOGPROCFDC_PDebug(fmt, ...) PDebug("[KERNEL>>ProcFD.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCFDC_PDebug(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROCFDC_Logs
+#    define LOGPROCFDC_PError(fmt, ...) PError("[KERNEL>>ProcFD.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCFDC_PError(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROCFDC_Logs
+#    define LOGPROCFDC_PWarn(fmt, ...) PWarn("[KERNEL>>ProcFD.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCFDC_PWarn(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROCFDC_Logs
+#    define LOGPROCFDC_PInfo(fmt, ...) PInfo("[KERNEL>>ProcFD.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCFDC_PInfo(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROCFDC_Logs
+#    define LOGPROCFDC_PSuccess(fmt, ...) PSuccess("[KERNEL>>ProcFD.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCFDC_PSuccess(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 /*Most of all POSIX Shimming live here,
     as well as on the Proc.c*/
@@ -30,6 +76,7 @@ __GetEntry__(PosixFdTable* __Tab__, int __Fd__)
 {
     if (!__IsValidFd__(__Tab__, __Fd__))
     {
+        PushError("__GetEntry__", LOGPROCFDC_PError, "bad Fd in __GetEntry__", -NotCanonical);
         return Error_TO_Pointer(-NotCanonical);
     }
     return &__Tab__->Entries[__Fd__];
@@ -46,6 +93,7 @@ __FindFreeFd__(PosixFdTable* __Tab__, int __Start__)
             return (int)I;
         }
     }
+    PushError("__FindFreeFd__", LOGPROCFDC_PError, "No free Fd found in __FindFreeFd__", -NoSuch);
     return -NoSuch;
 }
 
@@ -67,34 +115,34 @@ __PipeWrite__(PosixPipeT* __P__, const void* __Buf__, long __Len__)
     long W = 0;
     while (W < __Len__)
     {
-        long len = atomic_load_explicit(&__P__->Len, memory_order_acquire);
-        if (len >= __P__->Cap)
+        long Len = atomic_load_explicit(&__P__->Len, memory_order_acquire);
+        if (Len >= __P__->Cap)
         {
             break;
         }
-        long tail = atomic_load_explicit(&__P__->Tail, memory_order_relaxed);
-        long head = atomic_load_explicit(&__P__->Head, memory_order_relaxed);
-        long cap  = __P__->Cap;
+        long Tail = atomic_load_explicit(&__P__->Tail, memory_order_relaxed);
+        long Head = atomic_load_explicit(&__P__->Head, memory_order_relaxed);
+        long Cap  = __P__->Cap;
 
-        long next_tail = (tail + 1) % cap;
-        if (next_tail == head)
+        long NxtTail = (Tail + 1) % Cap;
+        if (NxtTail == Head)
         {
             break;
         }
 
-        __P__->Buf[tail] = ((const char*)__Buf__)[W];
+        __P__->Buf[Tail] = ((const char*)__Buf__)[W];
 
-        bool tail_ok = atomic_compare_exchange_weak_explicit(
-            &__P__->Tail, &tail, next_tail, memory_order_acq_rel, memory_order_relaxed);
+        bool TailNotBitten = atomic_compare_exchange_weak_explicit(
+            &__P__->Tail, &Tail, NxtTail, memory_order_acq_rel, memory_order_relaxed);
 
-        if (!tail_ok)
+        if (!TailNotBitten)
         {
             continue;
         }
 
-        long expected_len = len;
+        long ExptLen = Len;
         if (atomic_compare_exchange_weak_explicit(
-                &__P__->Len, &expected_len, len + 1, memory_order_acq_rel, memory_order_relaxed))
+                &__P__->Len, &ExptLen, Len + 1, memory_order_acq_rel, memory_order_relaxed))
         {
             W++;
         }
@@ -108,34 +156,34 @@ __PipeRead__(PosixPipeT* __P__, void* __Buf__, long __Len__)
     long R = 0;
     while (R < __Len__)
     {
-        long len = atomic_load_explicit(&__P__->Len, memory_order_acquire);
-        if (len <= 0)
+        long Len = atomic_load_explicit(&__P__->Len, memory_order_acquire);
+        if (Len <= 0)
         {
             break;
         }
-        long head = atomic_load_explicit(&__P__->Head, memory_order_relaxed);
-        long tail = atomic_load_explicit(&__P__->Tail, memory_order_relaxed);
-        long cap  = __P__->Cap;
+        long Head = atomic_load_explicit(&__P__->Head, memory_order_relaxed);
+        long Tail = atomic_load_explicit(&__P__->Tail, memory_order_relaxed);
+        long Cap  = __P__->Cap;
 
-        if (head == tail)
+        if (Head == Tail)
         {
             break;
         }
 
-        ((char*)__Buf__)[R] = __P__->Buf[head];
+        ((char*)__Buf__)[R] = __P__->Buf[Head];
 
-        long next_head = (head + 1) % cap;
-        bool head_ok   = atomic_compare_exchange_weak_explicit(
-            &__P__->Head, &head, next_head, memory_order_acq_rel, memory_order_relaxed);
+        long next_head       = (Head + 1) % Cap;
+        bool HeadNoFractured = atomic_compare_exchange_weak_explicit(
+            &__P__->Head, &Head, next_head, memory_order_acq_rel, memory_order_relaxed);
 
-        if (!head_ok)
+        if (!HeadNoFractured)
         {
             continue;
         }
 
-        long expected_len = len;
+        long ExptLen = Len;
         if (atomic_compare_exchange_weak_explicit(
-                &__P__->Len, &expected_len, len - 1, memory_order_acq_rel, memory_order_relaxed))
+                &__P__->Len, &ExptLen, Len - 1, memory_order_acq_rel, memory_order_relaxed))
         {
             R++;
         }
@@ -166,7 +214,8 @@ PosixOpen(PosixFdTable* __Tab__, const char* __Path__, long __Flags__, long __Mo
 {
     if (Probe_IF_Error(__Tab__) || !__Tab__ || Probe_IF_Error(__Path__) || !__Path__)
     {
-        return -NotCanonical;
+        PushError("PosixOpen", LOGPROCFDC_PError, "Bad args to PosixOpen", -BadArguments);
+        return -BadArguments;
     }
 
     int NewFd;
@@ -175,11 +224,12 @@ PosixOpen(PosixFdTable* __Tab__, const char* __Path__, long __Flags__, long __Mo
         NewFd = __FindFreeFd__(__Tab__, 0);
         if (NewFd < 0)
         {
+            PushError("PosixOpen", LOGPROCFDC_PError, "No free Fd in PosixOpen", -TooLess);
             return -TooLess;
         }
-        long expected = SysErro;
+        long Expt = SysErro;
         if (atomic_compare_exchange_weak_explicit(&__Tab__->Entries[NewFd].Fd,
-                                                  &expected,
+                                                  &Expt,
                                                   NewFd,
                                                   memory_order_acq_rel,
                                                   memory_order_relaxed))
@@ -192,6 +242,10 @@ PosixOpen(PosixFdTable* __Tab__, const char* __Path__, long __Flags__, long __Mo
     if (Probe_IF_Error(F) || !F)
     {
         atomic_store_explicit(&__Tab__->Entries[NewFd].Fd, -1, memory_order_release);
+        PushError("PosixOpen",
+                  LOGPROCFDC_PError,
+                  "Failed to open file in PosixOpen",
+                  Pointer_TO_Error(F));
         return -BadEntity;
     }
 
@@ -213,6 +267,7 @@ PosixClose(PosixFdTable* __Tab__, int __Fd__)
     PosixFd* E = __GetEntry__(__Tab__, __Fd__);
     if (Probe_IF_Error(E) || !E || atomic_load_explicit(&E->Fd, memory_order_acquire) < 0)
     {
+        PushError("PosixClose", LOGPROCFDC_PError, "Bad Fd in PosixClose", Pointer_TO_Error(E));
         return -BadEntry;
     }
 
@@ -241,6 +296,7 @@ PosixRead(PosixFdTable* __Tab__, int __Fd__, void* __Buf__, long __Len__)
     PosixFd* E = __GetEntry__(__Tab__, __Fd__);
     if (Probe_IF_Error(E) || !E || atomic_load_explicit(&E->Fd, memory_order_acquire) < 0)
     {
+        PushError("PosixRead", LOGPROCFDC_PError, "Bad Fd in PosixRead", Pointer_TO_Error(E));
         return -BadEntry;
     }
     if (E->IsFile)
@@ -251,7 +307,8 @@ PosixRead(PosixFdTable* __Tab__, int __Fd__, void* __Buf__, long __Len__)
     {
         return __PipeRead__((PosixPipeT*)E->Obj, __Buf__, __Len__);
     }
-    return -NoRead;
+    PushError("PosixRead", LOGPROCFDC_PError, "Fd is neither file nor char in PosixRead", -BadRead);
+    return -BadRead;
 }
 
 long
@@ -260,6 +317,7 @@ PosixWrite(PosixFdTable* __Tab__, int __Fd__, const void* __Buf__, long __Len__)
     PosixFd* E = __GetEntry__(__Tab__, __Fd__);
     if (Probe_IF_Error(E) || !E || atomic_load_explicit(&E->Fd, memory_order_acquire) < 0)
     {
+        PushError("PosixWrite", LOGPROCFDC_PError, "Bad Fd in PosixWrite", Pointer_TO_Error(E));
         return -BadEntry;
     }
 
@@ -272,8 +330,9 @@ PosixWrite(PosixFdTable* __Tab__, int __Fd__, const void* __Buf__, long __Len__)
     {
         return __PipeWrite__((PosixPipeT*)E->Obj, __Buf__, __Len__);
     }
-
-    return -NoWrite;
+    PushError(
+        "PosixWrite", LOGPROCFDC_PError, "Fd is neither file nor char in PosixWrite", -BadWrite);
+    return -BadWrite;
 }
 
 long
@@ -283,6 +342,7 @@ PosixLseek(PosixFdTable* __Tab__, int __Fd__, long __Off__, int __Wh__)
     if (Probe_IF_Error(E) || !E || atomic_load_explicit(&E->Fd, memory_order_acquire) < 0 ||
         Probe_IF_Error(E->IsFile) || !E->IsFile)
     {
+        PushError("PosixLseek", LOGPROCFDC_PError, "Bad Fd in PosixLseek", Pointer_TO_Error(E));
         return -BadEntry;
     }
     return VfsLseek((File*)E->Obj, __Off__, __Wh__);
@@ -294,6 +354,7 @@ PosixDup(PosixFdTable* __Tab__, int __Fd__)
     PosixFd* E = __GetEntry__(__Tab__, __Fd__);
     if (Probe_IF_Error(E) || !E || atomic_load_explicit(&E->Fd, memory_order_acquire) < 0)
     {
+        PushError("PosixDup", LOGPROCFDC_PError, "Bad Fd in PosixDup", Pointer_TO_Error(E));
         return -BadEntry;
     }
 
@@ -303,11 +364,12 @@ PosixDup(PosixFdTable* __Tab__, int __Fd__)
         NewFd = __FindFreeFd__(__Tab__, 0);
         if (NewFd < 0)
         {
+            PushError("PosixDup", LOGPROCFDC_PError, "No free Fd in PosixDup", -TooLess);
             return -TooLess;
         }
-        long expected = SysErro;
+        long Expt = SysErro;
         if (atomic_compare_exchange_weak_explicit(&__Tab__->Entries[NewFd].Fd,
-                                                  &expected,
+                                                  &Expt,
                                                   NewFd,
                                                   memory_order_acq_rel,
                                                   memory_order_relaxed))
@@ -335,6 +397,7 @@ PosixDup2(PosixFdTable* __Tab__, int __OldFd__, int __NewFd__)
     if (Probe_IF_Error(E) || !E || atomic_load_explicit(&E->Fd, memory_order_acquire) < 0 ||
         !__IsValidFd__(__Tab__, __NewFd__))
     {
+        PushError("PosixDup2", LOGPROCFDC_PError, "Bad Fd in PosixDup2", Pointer_TO_Error(E));
         return -BadEntry;
     }
     if (__OldFd__ == __NewFd__)
@@ -345,10 +408,11 @@ PosixDup2(PosixFdTable* __Tab__, int __OldFd__, int __NewFd__)
     PosixFd* D = &__Tab__->Entries[__NewFd__];
     if (atomic_load_explicit(&D->Fd, memory_order_acquire) >= 0)
     {
-        int rc = PosixClose(__Tab__, __NewFd__);
-        if (rc != SysOkay)
+        int RetC = PosixClose(__Tab__, __NewFd__);
+        if (RetC != SysOkay)
         {
-            return -ErrReturn;
+            PushError("PosixDup2", LOGPROCFDC_PError, "Failed to close old fd in PosixDup2", -RetC);
+            return -BadReturn;
         }
     }
 
@@ -373,14 +437,12 @@ PosixPipe(PosixFdTable* __Tab__, int __Pipefd__[2])
         Rd = __FindFreeFd__(__Tab__, 0);
         if (Rd < 0)
         {
-            return -NoOperations;
+            PushError("PosixPipe", LOGPROCFDC_PError, "No free read Fd in PosixPipe", -TooLess);
+            return -TooLess;
         }
-        long expected = SysErro;
-        if (atomic_compare_exchange_weak_explicit(&__Tab__->Entries[Rd].Fd,
-                                                  &expected,
-                                                  Rd,
-                                                  memory_order_acq_rel,
-                                                  memory_order_relaxed))
+        long Expt = SysErro;
+        if (atomic_compare_exchange_weak_explicit(
+                &__Tab__->Entries[Rd].Fd, &Expt, Rd, memory_order_acq_rel, memory_order_relaxed))
         {
             break;
         }
@@ -392,14 +454,12 @@ PosixPipe(PosixFdTable* __Tab__, int __Pipefd__[2])
         if (Wr < 0)
         {
             atomic_store_explicit(&__Tab__->Entries[Rd].Fd, -1, memory_order_release);
-            return -NoOperations;
+            PushError("PosixPipe", LOGPROCFDC_PError, "No free write Fd in PosixPipe", -TooLess);
+            return -TooLess;
         }
-        long expected = SysErro;
-        if (atomic_compare_exchange_weak_explicit(&__Tab__->Entries[Wr].Fd,
-                                                  &expected,
-                                                  Wr,
-                                                  memory_order_acq_rel,
-                                                  memory_order_relaxed))
+        long Expt = SysErro;
+        if (atomic_compare_exchange_weak_explicit(
+                &__Tab__->Entries[Wr].Fd, &Expt, Wr, memory_order_acq_rel, memory_order_relaxed))
         {
             break;
         }
@@ -445,6 +505,7 @@ PosixFcntl(PosixFdTable* __Tab__, int __Fd__, int __Cmd__, long __Arg__ __attrib
     PosixFd* E = __GetEntry__(__Tab__, __Fd__);
     if (Probe_IF_Error(E) || !E || atomic_load_explicit(&E->Fd, memory_order_acquire) < 0)
     {
+        PushError("__attribute__", LOGPROCFDC_PError, "Bad Fd in PosixFcntl", Pointer_TO_Error(E));
         return -BadEntry;
     }
     if (__Cmd__ == 0)
@@ -459,11 +520,12 @@ PosixFcntl(PosixFdTable* __Tab__, int __Fd__, int __Cmd__, long __Arg__ __attrib
             NewFd = __FindFreeFd__(__Tab__, 0);
             if (NewFd < 0)
             {
+                PushError("__attribute__", LOGPROCFDC_PError, "No free Fd in PosixFcntl", -TooLess);
                 return -TooLess;
             }
-            long expected = SysErro;
+            long Expt = SysErro;
             if (atomic_compare_exchange_weak_explicit(&__Tab__->Entries[NewFd].Fd,
-                                                      &expected,
+                                                      &Expt,
                                                       NewFd,
                                                       memory_order_acq_rel,
                                                       memory_order_relaxed))
@@ -482,6 +544,7 @@ PosixFcntl(PosixFdTable* __Tab__, int __Fd__, int __Cmd__, long __Arg__ __attrib
         atomic_fetch_add_explicit(&__Tab__->Count, 1, memory_order_acq_rel);
         return NewFd;
     }
+    PushError("__attribute__", LOGPROCFDC_PError, "Unsupported cmd in PosixFcntl", -NotCanonical);
     return -NotCanonical;
 }
 
@@ -492,6 +555,7 @@ PosixIoctl(PosixFdTable* __Tab__, int __Fd__, unsigned long __Cmd__, void* __Arg
     if (Probe_IF_Error(E) || !E || atomic_load_explicit(&E->Fd, memory_order_acquire) < 0 ||
         Probe_IF_Error(E->IsFile) || !E->IsFile)
     {
+        PushError("PosixIoctl", LOGPROCFDC_PError, "Bad Fd in PosixIoctl", Pointer_TO_Error(E));
         return -BadEntry;
     }
     return VfsIoctl((File*)E->Obj, __Cmd__, __Arg__);
@@ -516,6 +580,7 @@ PosixFstat(PosixFdTable* __Tab__, int __Fd__, VfsStat* __Out__)
     if (Probe_IF_Error(E) || !E || atomic_load_explicit(&E->Fd, memory_order_acquire) < 0 ||
         Probe_IF_Error(E->IsFile) || !E->IsFile)
     {
+        PushError("PosixFstat", LOGPROCFDC_PError, "Bad Fd in PosixFstat", Pointer_TO_Error(E));
         return -BadEntry;
     }
     return VfsFstats((File*)E->Obj, __Out__);

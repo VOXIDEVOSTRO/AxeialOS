@@ -1,5 +1,51 @@
 #include <Errnos.h>
 #include <KHeap.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGSLABC_Debug
+#    define LOGSLABC_PDebug(fmt, ...) PDebug("[KERNEL>>Slab.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSLABC_PDebug(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSLABC_Logs
+#    define LOGSLABC_PError(fmt, ...) PError("[KERNEL>>Slab.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSLABC_PError(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSLABC_Logs
+#    define LOGSLABC_PWarn(fmt, ...) PWarn("[KERNEL>>Slab.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSLABC_PWarn(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSLABC_Logs
+#    define LOGSLABC_PInfo(fmt, ...) PInfo("[KERNEL>>Slab.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSLABC_PInfo(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSLABC_Logs
+#    define LOGSLABC_PSuccess(fmt, ...) PSuccess("[KERNEL>>Slab.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSLABC_PSuccess(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 SlabCache*
 GetSlabCache(size_t __Size__)
@@ -12,6 +58,7 @@ GetSlabCache(size_t __Size__)
             return &KHeap.Caches[Index];
         }
     }
+    PushError("GetSlabCache", LOGSLABC_PError, "no suitable cache found in GetSlabCache", -NoSuch);
     return Error_TO_Pointer(-NoSuch); /*No suitable cache found*/
 }
 
@@ -24,7 +71,9 @@ AllocateSlab(uint32_t __ObjectSize__)
     uint64_t PhysAddr = AllocPage();
     if (!PhysAddr)
     {
-        return Error_TO_Pointer(-TooMany); /*Out of memory*/
+        PushError(
+            "AllocateSlab", LOGSLABC_PError, "out of physical memory in AllocateSlab", -Depleted);
+        return Error_TO_Pointer(-Depleted); /*Out of memory*/
     }
 
     Slab* NewSlab = (Slab*)PhysToVirt(PhysAddr);
@@ -62,7 +111,11 @@ FreeSlab(Slab* __Slab__, SysErr* __Err__)
 {
     if (!__Slab__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("FreeSlab",
+                  LOGSLABC_PError,
+                  "bad slab pointer in arguments of FreeSlab",
+                  -BadArguments);
         return;
     }
 

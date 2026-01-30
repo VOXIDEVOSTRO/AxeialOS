@@ -1,12 +1,62 @@
 #include <Errnos.h>
 #include <PMM.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGMEMMAPC_Debug
+#    define LOGMEMMAPC_PDebug(fmt, ...) PDebug("[KERNEL>>MemMap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMEMMAPC_PDebug(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGMEMMAPC_Logs
+#    define LOGMEMMAPC_PError(fmt, ...) PError("[KERNEL>>MemMap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMEMMAPC_PError(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGMEMMAPC_Logs
+#    define LOGMEMMAPC_PWarn(fmt, ...) PWarn("[KERNEL>>MemMap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMEMMAPC_PWarn(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGMEMMAPC_Logs
+#    define LOGMEMMAPC_PInfo(fmt, ...) PInfo("[KERNEL>>MemMap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMEMMAPC_PInfo(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGMEMMAPC_Logs
+#    define LOGMEMMAPC_PSuccess(fmt, ...) PSuccess("[KERNEL>>MemMap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGMEMMAPC_PSuccess(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 void
 ParseMemoryMap(SysErr* __Err__)
 {
     if (!MemmapRequest.response)
     {
-        SlotError(__Err__, -NoOperations);
+        SlotError(__Err__, -NotInitilized);
+        PushError("ParseMemoryMap",
+                  LOGMEMMAPC_PError,
+                  "memmap request failed from bootloader[Limine]",
+                  -NotInitilized);
         return;
     }
 
@@ -56,16 +106,16 @@ ParseMemoryMap(SysErr* __Err__)
 
         Pmm.RegionCount++;
 
-        PDebug("Region %lu: 0x%016lx-0x%016lx Type=%u\n",
-               Index,
-               Entry->base,
-               EndAddr,
-               Pmm.Regions[Pmm.RegionCount - 1].Type);
+        LOGMEMMAPC_PDebug("Region %lu: 0x%016lx-0x%016lx Type=%u\n",
+                          Index,
+                          Entry->base,
+                          EndAddr,
+                          Pmm.Regions[Pmm.RegionCount - 1].Type);
     }
 
     /*Calculate total pages in system (round up)*/
     Pmm.TotalPages = (TotalUsableMemory + PageSize - 1) / PageSize;
-    PInfo(
+    LOGMEMMAPC_PInfo(
         "Total pages: %lu (%lu MB)\n", Pmm.TotalPages, (Pmm.TotalPages * PageSize) / (1024 * 1024));
 }
 
@@ -96,7 +146,8 @@ MarkMemoryRegions(SysErr* __Err__)
             }
 
             TotalFreePages += PageCount;
-            PDebug("Marked %lu pages free at 0x%016lx\n", PageCount, Pmm.Regions[RegionIndex].Base);
+            LOGMEMMAPC_PDebug(
+                "Marked %lu pages free at 0x%016lx\n", PageCount, Pmm.Regions[RegionIndex].Base);
         }
     }
 
@@ -109,6 +160,7 @@ MarkMemoryRegions(SysErr* __Err__)
         SetBitmapBit(Page, __Err__);
     }
 
-    PInfo("Protected %lu bitmap pages from allocation\n", BitmapPageCount);
-    PSuccess("Memory regions marked: %lu pages available\n", TotalFreePages - BitmapPageCount);
+    LOGMEMMAPC_PInfo("Protected %lu bitmap pages from allocation\n", BitmapPageCount);
+    LOGMEMMAPC_PSuccess("Memory regions marked: %lu pages available\n",
+                        TotalFreePages - BitmapPageCount);
 }

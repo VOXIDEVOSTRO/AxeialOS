@@ -1,5 +1,51 @@
 #include <Errnos.h>
 #include <PMM.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGBITMAPC_Debug
+#    define LOGBITMAPC_PDebug(fmt, ...) PDebug("[KERNEL>>Bitmap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBITMAPC_PDebug(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGBITMAPC_Logs
+#    define LOGBITMAPC_PError(fmt, ...) PError("[KERNEL>>Bitmap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBITMAPC_PError(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGBITMAPC_Logs
+#    define LOGBITMAPC_PWarn(fmt, ...) PWarn("[KERNEL>>Bitmap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBITMAPC_PWarn(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGBITMAPC_Logs
+#    define LOGBITMAPC_PInfo(fmt, ...) PInfo("[KERNEL>>Bitmap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBITMAPC_PInfo(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGBITMAPC_Logs
+#    define LOGBITMAPC_PSuccess(fmt, ...) PSuccess("[KERNEL>>Bitmap.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBITMAPC_PSuccess(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 void
 InitializeBitmap(SysErr* __Err__)
@@ -21,7 +67,7 @@ InitializeBitmap(SysErr* __Err__)
         if (type == MemoryTypeUsable && length >= BitmapBytes)
         {
             BitmapPhys = atomic_load(&Pmm.Regions[Index].Base);
-            PDebug("Found bitmap location in region %u\n", Index);
+            LOGBITMAPC_PDebug("Found bitmap location in region %u\n", Index);
             break;
         }
     }
@@ -29,6 +75,8 @@ InitializeBitmap(SysErr* __Err__)
     if (BitmapPhys == 0)
     {
         SlotError(__Err__, -NoSuch);
+        PushError(
+            "InitializeBitmap", LOGBITMAPC_PError, "Failed to find memory for bitmap", -NoSuch);
         return;
     }
 
@@ -40,7 +88,7 @@ InitializeBitmap(SysErr* __Err__)
         atomic_store(&Pmm.Bitmap[Index], 0);
     }
 
-    PSuccess("Bitmap initialized at 0x%016lx\n", BitmapPhys);
+    LOGBITMAPC_PSuccess("Bitmap initialized at 0x%016lx\n", BitmapPhys);
 }
 
 void
@@ -67,6 +115,6 @@ TestBitmapBit(uint64_t __PageIndex__)
     uint64_t ByteIndex = __PageIndex__ / BitsPerUint64;
     uint64_t BitIndex  = __PageIndex__ % BitsPerUint64;
 
-    uint64_t val = atomic_load(&Pmm.Bitmap[ByteIndex]);
-    return (val & (1ULL << BitIndex)) != Nothing;
+    uint64_t Value = atomic_load(&Pmm.Bitmap[ByteIndex]);
+    return (Value & (1ULL << BitIndex)) != Nothing;
 }

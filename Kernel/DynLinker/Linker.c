@@ -6,13 +6,61 @@
 #include <ModMemMgr.h>
 #include <String.h>
 #include <VFS.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGLINKERC_Debug
+#    define LOGLINKERC_PDebug(fmt, ...) PDebug("[KERNEL>>Linker.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGLINKERC_PDebug(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGLINKERC_Logs
+#    define LOGLINKERC_PError(fmt, ...) PError("[KERNEL>>Linker.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGLINKERC_PError(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGLINKERC_Logs
+#    define LOGLINKERC_PWarn(fmt, ...) PWarn("[KERNEL>>Linker.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGLINKERC_PWarn(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGLINKERC_Logs
+#    define LOGLINKERC_PInfo(fmt, ...) PInfo("[KERNEL>>Linker.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGLINKERC_PInfo(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGLINKERC_Logs
+#    define LOGLINKERC_PSuccess(fmt, ...) PSuccess("[KERNEL>>Linker.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGLINKERC_PSuccess(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 int
 InstallModule(const char* __Path__)
 {
     if (Probe_IF_Error(__Path__) || !__Path__)
     {
-        return -BadArgs;
+        PushError(
+            "InstallModule", LOGLINKERC_PError, "bad arguments to InstallModule", -BadArguments);
+        return -BadArguments;
     }
 
     static uint8_t ZeroStub[1] = {0};
@@ -26,33 +74,40 @@ InstallModule(const char* __Path__)
     if (VfsReadAll(__Path__, &Hdr, (long)sizeof(Hdr), &HdrLen) != SysOkay ||
         HdrLen < (long)sizeof(Hdr))
     {
-        return -BadEntity;
+        PushError("InstallModule", LOGLINKERC_PError, "failed to read elf header", -BadRead);
+        return -BadRead;
     }
 
     if (Hdr.e_ident[0] != 0x7F || Hdr.e_ident[1] != 'E' || Hdr.e_ident[2] != 'L' ||
         Hdr.e_ident[3] != 'F')
     {
+        PushError("InstallModule", LOGLINKERC_PError, "not a valid ELF entity", -BadEntity);
         return -BadEntity;
     }
 
     if (Hdr.e_ident[4] != 2)
     {
-        return -Dangling;
+        PushError("InstallModule", LOGLINKERC_PError, "not a 64-bit entity", -Impilict);
+        return -Impilict;
     }
 
     if (Hdr.e_machine != 0x3E)
     {
-        return -Dangling;
+        PushError("InstallModule", LOGLINKERC_PError, "not an x86-64 entity", -Impilict);
+        return -Impilict;
     }
 
     if (Hdr.e_type != 1 && Hdr.e_type != 3)
     {
+        PushError(
+            "InstallModule", LOGLINKERC_PError, "not a relocatable or shared object", -Impilict);
         return -Impilict;
     }
 
     long ShNum = (long)Hdr.e_shnum;
     if (ShNum <= 0)
     {
+        PushError("InstallModule", LOGLINKERC_PError, "section count is not positive", -Limits);
         return -Limits;
     }
 
@@ -60,7 +115,9 @@ InstallModule(const char* __Path__)
     Elf64_Shdr* ShTbl    = (Elf64_Shdr*)KMalloc((size_t)ShtBytes);
     if (Probe_IF_Error(ShTbl) || !ShTbl)
     {
-        return -BadAlloc;
+        PushError(
+            "InstallModule", LOGLINKERC_PError, "cannot allocate ShTbl", Pointer_TO_Error(ShTbl));
+        return -BadAllocation;
     }
 
     {
@@ -68,20 +125,30 @@ InstallModule(const char* __Path__)
         if (Probe_IF_Error(F) || !F)
         {
             KFree(ShTbl, Error);
+            PushError(
+                "InstallModule", LOGLINKERC_PError, "failed to open file", Pointer_TO_Error(F));
             return -NotCanonical;
         }
         if (VfsLseek(F, (long)Hdr.e_shoff, VSeekSET) < 0)
         {
             VfsClose(F);
             KFree(ShTbl, Error);
-            return -NoRead;
+            PushError("InstallModule",
+                      LOGLINKERC_PError,
+                      "failed to seek to section header table",
+                      -BadRead);
+            return -BadRead;
         }
         long Rd = VfsRead(F, ShTbl, ShtBytes);
         VfsClose(F);
         if (Rd < ShtBytes)
         {
             KFree(ShTbl, Error);
-            return -NoRead;
+            PushError("InstallModule",
+                      LOGLINKERC_PError,
+                      "failed to read section header table",
+                      -BadRead);
+            return -BadRead;
         }
     }
 
@@ -101,6 +168,7 @@ InstallModule(const char* __Path__)
     if (SymtabIdx < 0 || StrtabIdx < 0)
     {
         KFree(ShTbl, Error);
+        PushError("InstallModule", LOGLINKERC_PError, "missing symbol or string table", -Missing);
         return -Missing;
     }
 
@@ -120,7 +188,9 @@ InstallModule(const char* __Path__)
             KFree(StrBuf, Error);
         }
         KFree(ShTbl, Error);
-        return -BadAlloc;
+        PushError(
+            "InstallModule", LOGLINKERC_PError, "cannot allocate Sym/Str buffers", -BadAllocation);
+        return -BadAllocation;
     }
 
     {
@@ -130,7 +200,8 @@ InstallModule(const char* __Path__)
             KFree(SymBuf, Error);
             KFree(StrBuf, Error);
             KFree(ShTbl, Error);
-
+            PushError(
+                "InstallModule", LOGLINKERC_PError, "failed to open file", Pointer_TO_Error(F));
             return -NotCanonical;
         }
         if (VfsLseek(F, (long)SymSh->sh_offset, VSeekSET) < 0)
@@ -139,7 +210,8 @@ InstallModule(const char* __Path__)
             KFree(SymBuf, Error);
             KFree(StrBuf, Error);
             KFree(ShTbl, Error);
-            return -NoRead;
+            PushError("InstallModule", LOGLINKERC_PError, "failed to seek to symtab", -BadRead);
+            return -BadRead;
         }
         long RdS = VfsRead(F, SymBuf, (long)SymSh->sh_size);
         if (VfsLseek(F, (long)StrSh->sh_offset, VSeekSET) < 0)
@@ -148,7 +220,8 @@ InstallModule(const char* __Path__)
             KFree(SymBuf, Error);
             KFree(StrBuf, Error);
             KFree(ShTbl, Error);
-            return -NoRead;
+            PushError("InstallModule", LOGLINKERC_PError, "failed to seek to strtab", -BadRead);
+            return -BadRead;
         }
         long RdT = VfsRead(F, StrBuf, (long)StrSh->sh_size);
         VfsClose(F);
@@ -157,7 +230,8 @@ InstallModule(const char* __Path__)
             KFree(SymBuf, Error);
             KFree(StrBuf, Error);
             KFree(ShTbl, Error);
-            return -NoRead;
+            PushError("InstallModule", LOGLINKERC_PError, "failed to read symtab/strtab", -BadRead);
+            return -BadRead;
         }
     }
 
@@ -168,7 +242,9 @@ InstallModule(const char* __Path__)
         KFree(SymBuf, Error);
         KFree(StrBuf, Error);
         KFree(ShTbl, Error);
-        return -BadAlloc;
+        PushError(
+            "InstallModule", LOGLINKERC_PError, "cannot allocate Syms", Pointer_TO_Error(Syms));
+        return -BadAllocation;
     }
 
     for (long I = 0; I < SymCount; I++)
@@ -190,7 +266,11 @@ InstallModule(const char* __Path__)
         KFree(SymBuf, Error);
         KFree(StrBuf, Error);
         KFree(ShTbl, Error);
-        return -BadAlloc;
+        PushError("InstallModule",
+                  LOGLINKERC_PError,
+                  "cannot allocate SectionBases",
+                  Pointer_TO_Error(SectionBases));
+        return -BadAllocation;
     }
     memset(SectionBases, 0, (size_t)(ShNum * (long)sizeof(void*)));
 
@@ -240,7 +320,9 @@ InstallModule(const char* __Path__)
                 KFree(SymBuf, Error);
                 KFree(StrBuf, Error);
                 KFree(ShTbl, Error);
-                return -BadAlloc;
+                PushError(
+                    "InstallModule", LOGLINKERC_PError, "cannot map sections", -BadAllocation);
+                return -BadAllocation;
             }
 
             uint64_t VaBase =
@@ -261,8 +343,8 @@ InstallModule(const char* __Path__)
             size_t Mapped = 0;
             for (size_t off = 0; off < Pages * PageSize; off += PageSize)
             {
-                int rc = MapPage(Vmm.KernelSpace, VaBase + off, Phys + off, MapFlags);
-                if (rc != SysOkay)
+                int RetC = MapPage(Vmm.KernelSpace, VaBase + off, Phys + off, MapFlags);
+                if (RetC != SysOkay)
                 {
                     /* rollback this section */
                     for (size_t roff = 0; roff < off; roff += PageSize)
@@ -297,7 +379,7 @@ InstallModule(const char* __Path__)
                     KFree(SymBuf, Error);
                     KFree(StrBuf, Error);
                     KFree(ShTbl, Error);
-                    return -BadAlloc;
+                    return -BadAllocation;
                 }
                 Mapped += PageSize;
             }
@@ -322,18 +404,45 @@ InstallModule(const char* __Path__)
                 File* F = VfsOpen(__Path__, VFlgRDONLY);
                 if (Probe_IF_Error(F) || !F)
                 {
+                    KFree(SectionBases, Error);
+                    KFree(Syms, Error);
+                    KFree(SymBuf, Error);
+                    KFree(StrBuf, Error);
+                    KFree(ShTbl, Error);
+                    PushError("InstallModule",
+                              LOGLINKERC_PError,
+                              "failed to open file",
+                              Pointer_TO_Error(F));
                     return -NotCanonical;
                 }
                 if (VfsLseek(F, (long)S->sh_offset, VSeekSET) < 0)
                 {
                     VfsClose(F);
-                    return -NoRead;
+                    KFree(SectionBases, Error);
+                    KFree(Syms, Error);
+                    KFree(SymBuf, Error);
+                    KFree(StrBuf, Error);
+                    KFree(ShTbl, Error);
+                    PushError("InstallModule",
+                              LOGLINKERC_PError,
+                              "failed to seek to relocation data",
+                              -BadRead);
+                    return -BadRead;
                 }
                 long Rd = VfsRead(F, (void*)VaBase, Size);
                 VfsClose(F);
                 if (Rd < Size)
                 {
-                    return -NoRead;
+                    KFree(SectionBases, Error);
+                    KFree(Syms, Error);
+                    KFree(SymBuf, Error);
+                    KFree(StrBuf, Error);
+                    KFree(ShTbl, Error);
+                    PushError("InstallModule",
+                              LOGLINKERC_PError,
+                              "failed to read section data",
+                              -BadRead);
+                    return -BadRead;
                 }
             }
         }
@@ -573,6 +682,7 @@ InstallModule(const char* __Path__)
         KFree(StrBuf, Error);
         KFree(SymBuf, Error);
         KFree(ShTbl, Error);
+        PushError("InstallModule", LOGLINKERC_PError, "no init symbol found", -Missing);
         return -Missing;
     }
 
@@ -633,6 +743,8 @@ InstallModule(const char* __Path__)
     if (Probe_IF_Error(Rec) || !Rec)
     {
         /*its fine*/
+        LOGLINKERC_PWarn(
+            "failed to allocate memory for module record, module installed but can't be removed\n");
         return SysOkay;
     }
 
@@ -651,7 +763,7 @@ InstallModule(const char* __Path__)
     Rec->Next         = 0;
 
     ModuleRegistryAdd(Rec);
-    PSuccess("Installed %s\n", __Path__);
+    LOGLINKERC_PSuccess("Installed %s\n", __Path__);
     return SysOkay;
 }
 
@@ -660,17 +772,21 @@ UnInstallModule(const char* __Path__)
 {
     if (Probe_IF_Error(__Path__) || !__Path__)
     {
-        return -BadArgs;
+        PushError("UnInstallModule", LOGLINKERC_PError, "bad path", -BadArguments);
+        return -BadArguments;
     }
 
     ModuleRecord* Rec = ModuleRegistryFind(__Path__);
     if (Probe_IF_Error(Rec) || !Rec)
     {
+        PushError(
+            "UnInstallModule", LOGLINKERC_PError, "module not recorded", Pointer_TO_Error(Rec));
         return -NotRecorded;
     }
 
     if (Rec->RefCount > 1)
     {
+        PushError("UnInstallModule", LOGLINKERC_PError, "module is busy, in reference", -Busy);
         return -Busy;
     }
 
@@ -707,7 +823,6 @@ UnInstallModule(const char* __Path__)
     }
 
     ModuleRegistryRemove(Rec);
-
     KFree(Rec->SectionBases, Error);
     KFree(Rec->Syms, Error);
     KFree(Rec->SymBuf, Error);
@@ -715,6 +830,6 @@ UnInstallModule(const char* __Path__)
     KFree(Rec->ShTbl, Error);
     KFree(Rec, Error);
 
-    PSuccess("Uninstalled %s\n", __Path__);
+    LOGLINKERC_PSuccess("Uninstalled %s\n", __Path__);
     return SysOkay;
 }

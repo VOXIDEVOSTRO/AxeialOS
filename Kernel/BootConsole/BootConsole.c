@@ -1,5 +1,52 @@
 #include <BootConsole.h>
 #include <Serial.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGBOOTCONSOLEC_Debug
+#    define LOGBOOTCONSOLEC_PDebug(fmt, ...) PDebug("[KERNEL>>BootConsole.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBOOTCONSOLEC_PDebug(fmt, ...)                                                       \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGBOOTCONSOLEC_Logs
+#    define LOGBOOTCONSOLEC_PError(fmt, ...) PError("[KERNEL>>BootConsole.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBOOTCONSOLEC_PError(fmt, ...)                                                       \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGBOOTCONSOLEC_Logs
+#    define LOGBOOTCONSOLEC_PWarn(fmt, ...) PWarn("[KERNEL>>BootConsole.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBOOTCONSOLEC_PWarn(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGBOOTCONSOLEC_Logs
+#    define LOGBOOTCONSOLEC_PInfo(fmt, ...) PInfo("[KERNEL>>BootConsole.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBOOTCONSOLEC_PInfo(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGBOOTCONSOLEC_Logs
+#    define LOGBOOTCONSOLEC_PSuccess(fmt, ...)                                                     \
+        PSuccess("[KERNEL>>BootConsole.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGBOOTCONSOLEC_PSuccess(fmt, ...)                                                     \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 BootConsole Console = {0};
 
@@ -48,10 +95,11 @@ PutChar(char __Char__)
     {
         uint32_t PixelX = Console.CursorX * FontW;
         uint32_t PixelY = Console.CursorY * FontH;
-
+#ifndef OnlyUART
         DisplayChar(
             Console.FrameBuffer, Console.FrameBufferW, PixelX, PixelY, __Char__, Console.TXColor);
         Console.CursorX++;
+#endif
     }
 
     /* Wrap horizontally */
@@ -97,4 +145,3 @@ SetCursor(uint32_t __CurX__, uint32_t __CurY__)
         Console.CursorY = __CurY__;
     }
 }
-/*100!*/

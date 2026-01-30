@@ -100,7 +100,7 @@ PrioQueuePop(PrioQueue* Q)
 {
     if (!Q || !Q->Head)
     {
-        return Error_TO_Pointer(-BadArgs);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     Thread* T = Q->Head;
@@ -127,7 +127,7 @@ PrioQueueRemove(PrioQueue* Q, Thread* T, SysErr* __Err__)
 {
     if (!Q || !T)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
         return;
     }
 
@@ -193,32 +193,30 @@ uint32_t GetCpuLoad(uint32_t __CpuId__);
 
 uint32_t FindLeastLoadedCpu(void);
 
-uint32_t FindMostLoadedCpu(void);
-
 uint32_t CalculateOptimalCpu(Thread* __ThreadPtr__);
 
 void MigrateThreadToCpu(Thread* __ThreadPtr__, uint32_t __TargetCpuId__, SysErr* __Err__);
 
-void RebalanceLoad(SysErr* __Err__);
-
-Thread* StealWorkFromCpu(uint32_t __SourceCpuId__);
-
-void GetSystemLoadStats(uint32_t* __TotalThreads__,
-                        uint32_t* __AverageLoad__,
-                        uint32_t* __MaxLoad__,
-                        uint32_t* __MinLoad__,
-                        SysErr*   __Err__);
-
 void DumpCpuSchedulerInfo(uint32_t __CpuId__, SysErr* __Err__);
 
 void DumpAllSchedulers(SysErr* __Err__);
-
-Thread* PeekHighestPriorityThread(uint32_t __CpuId__);
-
-bool HasReadyWork(uint32_t __CpuId__);
 
 void SaveInterruptFrameToThread(Thread* __ThreadPtr__, InterruptFrame* __Frame__, SysErr* __Err__);
 
 void LoadThreadContextToInterruptFrame(Thread*         __ThreadPtr__,
                                        InterruptFrame* __Frame__,
                                        SysErr*         __Err__);
+
+void SpawnIdleThreadCPU(uint32_t __CpuId__, SysErr* __Err__);
+
+KEXPORT(GetNextThread);
+KEXPORT(GetCpuReadyCount);
+KEXPORT(GetCpuThreadCount);
+KEXPORT(GetCpuContextSwitches);
+KEXPORT(GetCpuLoadAverage);
+KEXPORT(GetCpuLoad);
+
+KEXPORT(FindLeastLoadedCpu);
+KEXPORT(CalculateOptimalCpu);
+
+KEXPORT(MigrateThreadToCpu);

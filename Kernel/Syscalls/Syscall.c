@@ -1,6 +1,53 @@
+#include <AxeThreads.h>
 #include <SysABI.h>
 #include <SysTbl.h>
 #include <Syscall.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGSYSCALLC_Debug
+#    define LOGSYSCALLC_PDebug(fmt, ...) PDebug("[KERNEL>>Syscall.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSYSCALLC_PDebug(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSYSCALLC_Logs
+#    define LOGSYSCALLC_PError(fmt, ...) PError("[KERNEL>>Syscall.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSYSCALLC_PError(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSYSCALLC_Logs
+#    define LOGSYSCALLC_PWarn(fmt, ...) PWarn("[KERNEL>>Syscall.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSYSCALLC_PWarn(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSYSCALLC_Logs
+#    define LOGSYSCALLC_PInfo(fmt, ...) PInfo("[KERNEL>>Syscall.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSYSCALLC_PInfo(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSYSCALLC_Logs
+#    define LOGSYSCALLC_PSuccess(fmt, ...) PSuccess("[KERNEL>>Syscall.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSYSCALLC_PSuccess(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 void
 SyscallHandler(uint64_t __SyscallNo__,
@@ -11,72 +58,126 @@ SyscallHandler(uint64_t __SyscallNo__,
                uint64_t __A5__,
                uint64_t __A6__)
 {
+    LOGSYSCALLC_PDebug("Syscall invoked: No: %llu, A1: %llu, A2: %llu, A3: %llu, A4: %llu, A5: "
+                       "%llu, A6: %llu [From CPU:%llu, TID:%llu]\n",
+                       __SyscallNo__,
+                       __A1__,
+                       __A2__,
+                       __A3__,
+                       __A4__,
+                       __A5__,
+                       __A6__,
+                       GetCurrentCpuId(),
+                       GetCurrentThread(GetCurrentCpuId())->ThreadId);
     if (__SyscallNo__ >= MaxSysNo || SysTbl[__SyscallNo__].Handler == NULL)
     {
         __asm__ volatile("movq $-1, %%rax" : : : "rax");
+        PushError("SyscallHandler", LOGSYSCALLC_PError, "bad syscall number", -BadSystemcall);
         return;
     }
     int64_t RaxrRes = SysTbl[__SyscallNo__].Handler(__A1__, __A2__, __A3__, __A4__, __A5__, __A6__);
     __asm__ volatile("movq %0, %%rax" : : "r"(RaxrRes) : "rax");
 }
 
+/*For Int 0x80*/
 __asm__(".global SysEntASM\n"
         "SysEntASM:\n"
-        " pushq %rbx\n"
-        " pushq %rcx\n"
-        " pushq %rdx\n"
-        " pushq %rsi\n"
-        " pushq %rdi\n"
-        " pushq %rbp\n"
-        " pushq %r8\n"
-        " pushq %r9\n"
-        " pushq %r10\n"
-        " pushq %r11\n"
-        " pushq %r12\n"
-        " pushq %r13\n"
-        " pushq %r14\n"
-        " pushq %r15\n"
-        " \n"
-        " # RAX = syscall number\n"
-        " # RDI = __A1__, RSI = __A2__, RDX = __A3__\n"
-        " # R10 = __A4__, R8 = __A5__, R9 = __A6__\n"
-        " \n"
-        " movq %rdi, %rbx # Save __A1__\n"
-        " movq %rsi, %r11 # Save __A2__\n"
-        " movq %rdx, %r12 # Save __A3__\n"
-        " movq %r10, %r13 # Save __A4__\n"
-        " movq %r8, %r14 # Save __A5__\n"
-        " movq %r9, %r15 # Save __A6__\n"
-        " \n"
-        " # SyscallHandler(__SyscallNo__, __A1__, __A2__, __A3__, __A4__, __A5__, "
-        "__A6__)\n"
-        " movq %rax, %rdi # __SyscallNo__ -> RDI\n"
-        " movq %rbx, %rsi # __A1__ -> RSI\n"
-        " movq %r11, %rdx # __A2__ -> RDX\n"
-        " movq %r12, %rcx # __A3__ -> RCX\n"
-        " movq %r13, %r8 # __A4__ -> R8\n"
-        " movq %r14, %r9 # __A5__ -> R9\n"
-        " pushq %r15 # __A6__ -> stack\n"
-        " \n"
-        " call SyscallHandler\n"
-        " addq $8, %rsp # Clean up pushed __A6__\n"
-        " \n"
-        " popq %r15\n"
-        " popq %r14\n"
-        " popq %r13\n"
-        " popq %r12\n"
-        " popq %r11\n"
-        " popq %r10\n"
-        " popq %r9\n"
-        " popq %r8\n"
-        " popq %rbp\n"
-        " popq %rdi\n"
-        " popq %rsi\n"
-        " popq %rdx\n"
-        " popq %rcx\n"
-        " popq %rbx\n"
-        " \n"
-        " iretq\n");
+        "pushq %rbx\n"
+        "pushq %rcx\n"
+        "pushq %rdx\n"
+        "pushq %rsi\n"
+        "pushq %rdi\n"
+        "pushq %rbp\n"
+        "pushq %r8\n"
+        "pushq %r9\n"
+        "pushq %r10\n"
+        "pushq %r11\n"
+        "pushq %r12\n"
+        "pushq %r13\n"
+        "pushq %r14\n"
+        "pushq %r15\n"
+        "movq %rdi, %rbx # Save __A1__\n"
+        "movq %rsi, %r11 # Save __A2__\n"
+        "movq %rdx, %r12 # Save __A3__\n"
+        "movq %r10, %r13 # Save __A4__\n"
+        "movq %r8, %r14 # Save __A5__\n"
+        "movq %r9, %r15 # Save __A6__\n"
+        "movq %rax, %rdi # __SyscallNo__ -> RDI\n"
+        "movq %rbx, %rsi # __A1__ -> RSI\n"
+        "movq %r11, %rdx # __A2__ -> RDX\n"
+        "movq %r12, %rcx # __A3__ -> RCX\n"
+        "movq %r13, %r8 # __A4__ -> R8\n"
+        "movq %r14, %r9 # __A5__ -> R9\n"
+        "pushq %r15 # __A6__ -> stack\n"
+        "call SyscallHandler\n"
+        "addq $8, %rsp\n"
+        "popq %r15\n"
+        "popq %r14\n"
+        "popq %r13\n"
+        "popq %r12\n"
+        "popq %r11\n"
+        "popq %r10\n"
+        "popq %r9\n"
+        "popq %r8\n"
+        "popq %rbp\n"
+        "popq %rdi\n"
+        "popq %rsi\n"
+        "popq %rdx\n"
+        "popq %rcx\n"
+        "popq %rbx\n"
+        "iretq\n");
+
+/* For Syscall instruction */
+__asm__(".global SysEntASMSys\n"
+        "SysEntASMSys:\n"
+        "pushq %rbx\n"
+        "pushq %rcx\n"
+        "pushq %rdx\n"
+        "pushq %rsi\n"
+        "pushq %rdi\n"
+        "pushq %rbp\n"
+        "pushq %r8\n"
+        "pushq %r9\n"
+        "pushq %r10\n"
+        "pushq %r11\n"
+        "pushq %r12\n"
+        "pushq %r13\n"
+        "pushq %r14\n"
+        "pushq %r15\n"
+        "movq %rdi, %rbx    # save arg0\n"
+        "movq %rsi, %r12    # save arg1\n"
+        "movq %rdx, %r13    # save arg2\n"
+        "movq %r10, %r14    # save arg3\n"
+        "movq %r8,  %r15    # save arg4\n"
+        "movq %r9,  %r11    # save arg5 into r11 (already saved, free to clobber)\n"
+        /*
+           SyscallHandler(num, a1, a2, a3, a4, a5)
+           -> rdi=num, rsi=a1, rdx=a2, rcx=a3, r8=a4, r9=a5
+        */
+        "movq %rax, %rdi        # syscall number -> rdi (C arg0)\n"
+        "movq %rbx, %rsi        # a1 -> rsi (C arg1)\n"
+        "movq %r12, %rdx        # a2 -> rdx (C arg2)\n"
+        "movq %r13, %rcx        # a3 -> rcx (C arg3)\n"
+        "movq %r14, %r8         # a4 -> r8  (C arg4)\n"
+        "movq %r15, %r9         # a5 -> r9  (C arg5)\n"
+        "pushq %r11             # a6 on stack\n"
+        "call SyscallHandler\n"
+        "addq $8, %rsp\n"
+        "popq %r15\n"
+        "popq %r14\n"
+        "popq %r13\n"
+        "popq %r12\n"
+        "popq %r11\n"
+        "popq %r10\n"
+        "popq %r9\n"
+        "popq %r8\n"
+        "popq %rbp\n"
+        "popq %rdi\n"
+        "popq %rsi\n"
+        "popq %rdx\n"
+        "popq %rcx\n"
+        "popq %rbx\n"
+        "sysretq\n");
 
 void
 InitSyscall(void)

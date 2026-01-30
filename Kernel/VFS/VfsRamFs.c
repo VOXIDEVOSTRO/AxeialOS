@@ -3,6 +3,52 @@
 #include <KrnPrintf.h>
 #include <RamFs.h>
 #include <String.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGVFSRAMFSC_Debug
+#    define LOGVFSRAMFSC_PDebug(fmt, ...) PDebug("[KERNEL>>VfsRamFs.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVFSRAMFSC_PDebug(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVFSRAMFSC_Logs
+#    define LOGVFSRAMFSC_PError(fmt, ...) PError("[KERNEL>>VfsRamFs.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVFSRAMFSC_PError(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVFSRAMFSC_Logs
+#    define LOGVFSRAMFSC_PWarn(fmt, ...) PWarn("[KERNEL>>VfsRamFs.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVFSRAMFSC_PWarn(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVFSRAMFSC_Logs
+#    define LOGVFSRAMFSC_PInfo(fmt, ...) PInfo("[KERNEL>>VfsRamFs.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVFSRAMFSC_PInfo(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGVFSRAMFSC_Logs
+#    define LOGVFSRAMFSC_PSuccess(fmt, ...) PSuccess("[KERNEL>>VfsRamFs.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGVFSRAMFSC_PSuccess(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 const VnodeOps __RamVfsOps__ = {
     .Open     = RamVfsOpen,     /**< Open file/directory handle */
@@ -44,10 +90,14 @@ RamFsRegister(void)
 
     if (VfsRegisterFs(&__RamFsType__) != SysOkay)
     {
+        PushError("RamFsRegister",
+                  LOGVFSRAMFSC_PError,
+                  "failed to register RAMFS with VFS",
+                  -NotRecorded);
         return -NotRecorded;
     }
 
-    PSuccess("Registered with VFS\n");
+    LOGVFSRAMFSC_PSuccess("Registered with VFS\n");
     return SysOkay;
 }
 
@@ -59,28 +109,44 @@ RamFsMountImpl(const char* __Dev__ _unused, const char* __Opts__ _unused)
 
     if (!RamFS.Root)
     {
-        return Error_TO_Pointer(-NotRooted);
+        PushError("RamFsMountImpl",
+                  LOGVFSRAMFSC_PError,
+                  "RAMFS root node is not initialized",
+                  -NotInitilized);
+        return Error_TO_Pointer(-NotInitilized);
     }
 
     Superblock* Sb = (Superblock*)KMalloc(sizeof(Superblock));
     if (Probe_IF_Error(Sb) || !Sb)
     {
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("RamFsMountImpl",
+                  LOGVFSRAMFSC_PError,
+                  "failed to allocate superblock for RAMFS",
+                  -BadAllocation);
+        return Error_TO_Pointer(-BadAllocation);
     }
 
     Vnode* Root = (Vnode*)KMalloc(sizeof(Vnode));
     if (Probe_IF_Error(Root) || !Root)
     {
+        PushError("RamFsMountImpl",
+                  LOGVFSRAMFSC_PError,
+                  "failed to allocate root vnode for RAMFS",
+                  -BadAllocation);
         KFree(Sb, Error);
-        return Error_TO_Pointer(-BadAlloc);
+        return Error_TO_Pointer(-BadAllocation);
     }
 
     RamVfsPrivNode* Priv = (RamVfsPrivNode*)KMalloc(sizeof(RamVfsPrivNode));
     if (Probe_IF_Error(Priv) || !Priv)
     {
+        PushError("RamFsMountImpl",
+                  LOGVFSRAMFSC_PError,
+                  "failed to allocate private data for RAMFS root vnode",
+                  -BadAllocation);
         KFree(Root, Error);
         KFree(Sb, Error);
-        return Error_TO_Pointer(-BadAlloc);
+        return Error_TO_Pointer(-BadAllocation);
     }
 
     Priv->Node   = RamFS.Root;
@@ -97,7 +163,7 @@ RamFsMountImpl(const char* __Dev__ _unused, const char* __Opts__ _unused)
     Sb->Ops   = &__RamVfsSuperOps__;
     Sb->Priv  = 0;
 
-    PDebug("Superblock created\n");
+    LOGVFSRAMFSC_PDebug("Superblock created\n");
     return Sb;
 }
 
@@ -106,12 +172,14 @@ RamVfsOpen(Vnode* __Node__, File* __File__)
 {
     if (Probe_IF_Error(__Node__) || !__Node__ || Probe_IF_Error(__File__) || !__File__)
     {
-        return -BadArgs;
+        PushError("RamVfsOpen", LOGVFSRAMFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     RamVfsPrivNode* PN = (RamVfsPrivNode*)__Node__->Priv;
     if (Probe_IF_Error(PN) || !PN || Probe_IF_Error(PN->Node) || !PN->Node)
     {
+        PushError("RamVfsOpen", LOGVFSRAMFSC_PError, "dangling vnode private data", -NotCanonical);
         return -NotCanonical;
     }
 
@@ -129,7 +197,11 @@ RamVfsOpen(Vnode* __Node__, File* __File__)
         RamVfsPrivFile* PF = (RamVfsPrivFile*)KMalloc(sizeof(RamVfsPrivFile));
         if (Probe_IF_Error(PF) || !PF)
         {
-            return -BadAlloc;
+            PushError("RamVfsOpen",
+                      LOGVFSRAMFSC_PError,
+                      "failed to allocate private data for RAMFS file",
+                      -BadAllocation);
+            return -BadAllocation;
         }
 
         PF->Node   = PN->Node;
@@ -142,6 +214,7 @@ RamVfsOpen(Vnode* __Node__, File* __File__)
         return 0;
     }
 
+    PushError("RamVfsOpen", LOGVFSRAMFSC_PError, "unsupported RAMFS node type", -NoSuch);
     return -NoSuch;
 }
 
@@ -150,7 +223,8 @@ RamVfsClose(File* __File__)
 {
     if (Probe_IF_Error(__File__) || !__File__)
     {
-        return -BadArgs;
+        PushError("RamVfsClose", LOGVFSRAMFSC_PError, "bad file handle", -BadArguments);
+        return -BadArguments;
     }
 
     if (__File__->Priv)
@@ -170,12 +244,14 @@ RamVfsRead(File* __File__, void* __Buf__, long __Len__)
     if (Probe_IF_Error(__File__) || !__File__ || Probe_IF_Error(__Buf__) || !__Buf__ ||
         __Len__ <= 0)
     {
-        return -BadArgs;
+        PushError("RamVfsRead", LOGVFSRAMFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     RamVfsPrivFile* PF = (RamVfsPrivFile*)__File__->Priv;
     if (Probe_IF_Error(PF) || !PF || Probe_IF_Error(PF->Node) || !PF->Node)
     {
+        PushError("RamVfsRead", LOGVFSRAMFSC_PError, "dangling file private data", -Dangling);
         return -Dangling;
     }
 
@@ -193,6 +269,10 @@ RamVfsRead(File* __File__, void* __Buf__, long __Len__)
 long
 RamVfsWrite(File* __File__ _unused, const void* __Buf__ _unused, long __Len__ _unused)
 {
+    PushError("RamVfsWrite",
+              LOGVFSRAMFSC_PError,
+              "RAMFS is read-only, write operation not supported",
+              -Impilict);
     return -Impilict;
 }
 
@@ -201,6 +281,7 @@ RamVfsLseek(File* __File__, long __Off__, int __Whence__)
 {
     if (Probe_IF_Error(__File__) || !__File__)
     {
+        PushError("RamVfsLseek", LOGVFSRAMFSC_PError, "bad file handle", -BadArguments);
         return -BadEntry;
     }
 
@@ -227,6 +308,7 @@ RamVfsLseek(File* __File__, long __Off__, int __Whence__)
     }
     else
     {
+        PushError("RamVfsLseek", LOGVFSRAMFSC_PError, "bad whence argument", -NotCanonical);
         return -NotCanonical;
     }
 
@@ -251,6 +333,7 @@ RamVfsLseek(File* __File__, long __Off__, int __Whence__)
 int
 RamVfsIoctl(File* __File__ _unused, unsigned long __Cmd__ _unused, void* __Arg__ _unused)
 {
+    PushError("RamVfsIoctl", LOGVFSRAMFSC_PError, "IOCTL not supported on RAMFS", -Impilict);
     return -Impilict;
 }
 
@@ -259,12 +342,14 @@ RamVfsStat(Vnode* __Node__, VfsStat* __Out__)
 {
     if (Probe_IF_Error(__Node__) || !__Node__ || Probe_IF_Error(__Out__) || !__Out__)
     {
-        return -BadArgs;
+        PushError("RamVfsStat", LOGVFSRAMFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     RamVfsPrivNode* PN = (RamVfsPrivNode*)__Node__->Priv;
     if (Probe_IF_Error(PN) || !PN || Probe_IF_Error(PN->Node) || !PN->Node)
     {
+        PushError("RamVfsStat", LOGVFSRAMFSC_PError, "dangling vnode private data", -Dangling);
         return -Dangling;
     }
 
@@ -295,17 +380,23 @@ RamVfsReaddir(Vnode* __Dir__, void* __Buf__, long __BufLen__)
     if (Probe_IF_Error(__Dir__) || !__Dir__ || Probe_IF_Error(__Buf__) || !__Buf__ ||
         __BufLen__ <= 0)
     {
-        return -BadArgs;
+        PushError("RamVfsReaddir", LOGVFSRAMFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     RamVfsPrivNode* PN = (RamVfsPrivNode*)__Dir__->Priv;
     if (Probe_IF_Error(PN) || !PN || Probe_IF_Error(PN->Node) || !PN->Node)
     {
+        PushError("RamVfsReaddir", LOGVFSRAMFSC_PError, "dangling vnode private data", -Dangling);
         return -Dangling;
     }
 
     if (PN->Node->Type != RamFSNode_Directory)
     {
+        PushError("RamVfsReaddir",
+                  LOGVFSRAMFSC_PError,
+                  "attempted to read directory entries from non-directory node",
+                  -BadEntry);
         return -BadEntry;
     }
 
@@ -341,13 +432,18 @@ RamVfsLookup(Vnode* __Dir__, const char* __Name__)
 {
     if (Probe_IF_Error(__Dir__) || !__Dir__ || Probe_IF_Error(__Name__) || !__Name__)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("RamVfsLookup", LOGVFSRAMFSC_PError, "bad arguments", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
     RamVfsPrivNode* PN = (RamVfsPrivNode*)__Dir__->Priv;
     if (Probe_IF_Error(PN) || !PN || Probe_IF_Error(PN->Node) || !PN->Node ||
         PN->Node->Type != RamFSNode_Directory)
     {
+        PushError("RamVfsLookup",
+                  LOGVFSRAMFSC_PError,
+                  "dangling vnode private data or non-directory node",
+                  -BadEntry);
         return Error_TO_Pointer(-BadEntry);
     }
 
@@ -367,22 +463,28 @@ RamVfsLookup(Vnode* __Dir__, const char* __Name__)
     }
     if (Probe_IF_Error(Child) || !Child)
     {
+        PushError("RamVfsLookup", LOGVFSRAMFSC_PError, "child not found", -BadEntry);
         return Error_TO_Pointer(-BadEntry);
     }
 
     Vnode* V = (Vnode*)KMalloc(sizeof(Vnode));
     if (Probe_IF_Error(V) || !V)
     {
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("RamVfsLookup", LOGVFSRAMFSC_PError, "failed to allocate vnode", -BadAllocation);
+        return Error_TO_Pointer(-BadAllocation);
     }
 
     RamVfsPrivNode* Priv = (RamVfsPrivNode*)KMalloc(sizeof(RamVfsPrivNode));
     if (Probe_IF_Error(Priv) || !Priv)
     {
+        PushError("RamVfsLookup",
+                  LOGVFSRAMFSC_PError,
+                  "failed to allocate private vnode data",
+                  -BadAllocation);
         SysErr  err;
         SysErr* Error = &err;
         KFree(V, Error);
-        return Error_TO_Pointer(-BadAlloc);
+        return Error_TO_Pointer(-BadAllocation);
     }
 
     Priv->Node = Child;
@@ -400,21 +502,29 @@ RamVfsCreate(Vnode* __Dir__, const char* __Name__, long __Flags__ _unused, VfsPe
 {
     if (Probe_IF_Error(__Dir__) || !__Dir__ || Probe_IF_Error(__Name__) || !__Name__)
     {
-        return -BadArgs;
+        PushError("RamVfsCreate", LOGVFSRAMFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
     RamVfsPrivNode* PN = (RamVfsPrivNode*)__Dir__->Priv;
     if (Probe_IF_Error(PN) || !PN || Probe_IF_Error(PN->Node) || !PN->Node)
     {
+        PushError("RamVfsCreate", LOGVFSRAMFSC_PError, "dangling vnode private data", -Dangling);
         return -Dangling;
     }
     if (PN->Node->Type != RamFSNode_Directory)
     {
+        PushError("RamVfsCreate",
+                  LOGVFSRAMFSC_PError,
+                  "attempted to create file in non-directory node",
+                  -BadEntry);
         return -BadEntry;
     }
 
     char* Path = RamFSJoinPath(PN->Node->Name ? PN->Node->Name : "/", __Name__);
     if (Probe_IF_Error(Path) || !Path)
     {
+        PushError(
+            "RamVfsCreate", LOGVFSRAMFSC_PError, "failed to join path for new file", -NotCanonical);
         return -NotCanonical;
     }
 
@@ -428,6 +538,10 @@ RamVfsCreate(Vnode* __Dir__, const char* __Name__, long __Flags__ _unused, VfsPe
 int
 RamVfsUnlink(Vnode* __Dir__ _unused, const char* __Name__ _unused)
 {
+    PushError("RamVfsUnlink",
+              LOGVFSRAMFSC_PError,
+              "RAMFS is read-only, unlink operation not supported",
+              -Impilict);
     return -Impilict;
 }
 
@@ -436,23 +550,33 @@ RamVfsMkdir(Vnode* __Dir__, const char* __Name__, VfsPerm __Perm__ _unused)
 {
     if (Probe_IF_Error(__Dir__) || !__Dir__ || Probe_IF_Error(__Name__) || !__Name__)
     {
-        return -BadArgs;
+        PushError("RamVfsMkdir", LOGVFSRAMFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     RamVfsPrivNode* PN = (RamVfsPrivNode*)__Dir__->Priv;
     if (Probe_IF_Error(PN) || !PN || Probe_IF_Error(PN->Node) || !PN->Node)
     {
+        PushError("RamVfsMkdir", LOGVFSRAMFSC_PError, "dangling vnode private data", -Dangling);
         return -Dangling;
     }
 
     if (PN->Node->Type != RamFSNode_Directory)
     {
+        PushError("RamVfsMkdir",
+                  LOGVFSRAMFSC_PError,
+                  "attempted to create directory in non-directory node",
+                  -BadEntry);
         return -BadEntry;
     }
 
     char* Path = RamFSJoinPath(PN->Node->Name ? PN->Node->Name : "/", __Name__);
     if (Probe_IF_Error(Path) || !Path)
     {
+        PushError("RamVfsMkdir",
+                  LOGVFSRAMFSC_PError,
+                  "failed to join path for new directory",
+                  -NotCanonical);
         return -NotCanonical;
     }
 
@@ -467,24 +591,40 @@ RamVfsMkdir(Vnode* __Dir__, const char* __Name__, VfsPerm __Perm__ _unused)
 int
 RamVfsRmdir(Vnode* __Dir__, const char* __Name__)
 {
+    PushError("RamVfsRmdir",
+              LOGVFSRAMFSC_PError,
+              "RAMFS is read-only, rmdir operation not supported",
+              -Impilict);
     return -Impilict;
 }
 
 int
 RamVfsSymlink(Vnode* __Dir__, const char* __Name__, const char* __Target__, VfsPerm __Perm__)
 {
+    PushError("RamVfsSymlink",
+              LOGVFSRAMFSC_PError,
+              "RAMFS is read-only, symlink operation not supported",
+              -Impilict);
     return -Impilict;
 }
 
 int
 RamVfsReadlink(Vnode* __Node__, VfsNameBuf* __Buf__)
 {
+    PushError("RamVfsReadlink",
+              LOGVFSRAMFSC_PError,
+              "RAMFS does not support symlinks, readlink operation not supported",
+              -Impilict);
     return -Impilict;
 }
 
 int
 RamVfsLink(Vnode* __Dir__, Vnode* __Src__, const char* __Name__)
 {
+    PushError("RamVfsLink",
+              LOGVFSRAMFSC_PError,
+              "RAMFS is read-only, link operation not supported",
+              -Impilict);
     return -Impilict;
 }
 
@@ -495,6 +635,10 @@ RamVfsRename(Vnode*      __OldDir__,
              const char* __NewName__,
              long        __Flags__)
 {
+    PushError("RamVfsRename",
+              LOGVFSRAMFSC_PError,
+              "RAMFS is read-only, rename operation not supported",
+              -Impilict);
     return -Impilict;
 }
 
@@ -513,6 +657,10 @@ RamVfsChown(Vnode* __Node__ _unused, long __Uid__ _unused, long __Gid__ _unused)
 int
 RamVfsTruncate(Vnode* __Node__ _unused, long __Len__ _unused)
 {
+    PushError("RamVfsTruncate",
+              LOGVFSRAMFSC_PError,
+              "RAMFS is read-only, truncate operation not supported",
+              -Impilict);
     return -Impilict;
 }
 
@@ -528,12 +676,15 @@ RamVfsMap(Vnode* __Node__ _unused,
           long __Off__    _unused,
           long __Len__    _unused)
 {
+    PushError("RamVfsMap", LOGVFSRAMFSC_PError, "RAMFS does not support memory mapping", -Impilict);
     return -Impilict;
 }
 
 int
 RamVfsUnmap(Vnode* __Node__ _unused, void* __Addr__ _unused, long __Len__ _unused)
 {
+    PushError(
+        "RamVfsUnmap", LOGVFSRAMFSC_PError, "RAMFS does not support memory unmapping", -Impilict);
     return -Impilict;
 }
 
@@ -548,7 +699,8 @@ RamVfsSuperStatFs(Superblock* __Sb__, VfsStatFs* __Out__)
 {
     if (Probe_IF_Error(__Sb__) || !__Sb__ || Probe_IF_Error(__Out__) || !__Out__)
     {
-        return -BadArgs;
+        PushError("RamVfsSuperStatFs", LOGVFSRAMFSC_PError, "bad arguments", -BadArguments);
+        return -BadArguments;
     }
 
     __Out__->TypeId  = RamFSMagic;
@@ -569,7 +721,8 @@ RamVfsSuperRelease(Superblock* __Sb__, SysErr* __Err__)
 {
     if (Probe_IF_Error(__Sb__) || !__Sb__)
     {
-        SlotError(__Err__, -BadArgs);
+        PushError("RamVfsSuperRelease", LOGVFSRAMFSC_PError, "bad superblock", -BadArguments);
+        SlotError(__Err__, -BadArguments);
         return;
     }
 
@@ -598,26 +751,38 @@ BootMountRamFs(const void* __Initrd__, size_t __Len__)
 {
     if (Probe_IF_Error(__Initrd__) || !__Initrd__ || __Len__ == 0)
     {
-        return -BadArgs;
+        PushError("BootMountRamFs", LOGVFSRAMFSC_PError, "bad initrd data", -BadArguments);
+        return -BadArguments;
     }
 
     /* Parse the cpio archive */
     if (!RamFSMount(__Initrd__, __Len__))
     {
+        PushError("BootMountRamFs",
+                  LOGVFSRAMFSC_PError,
+                  "failed to mount RAMFS from initrd",
+                  -NotCanonical);
         return -NotCanonical;
     }
 
     if (RamFsRegister() != SysOkay)
     {
+        PushError("BootMountRamFs",
+                  LOGVFSRAMFSC_PError,
+                  "failed to register RAMFS filesystem",
+                  -NotRecorded);
         return -NotRecorded;
     }
 
     /* Mount as root '/' */
-    if (!VfsMount(0, "/", "ramfs", VMFlgNONE, 0))
+    if (!VfsMount(0, "/", "ramfs", VMFlgNONE, 0) ||
+        Probe_IF_Error(VfsMount(0, "/", "ramfs", VMFlgNONE, 0)))
     {
+        PushError(
+            "BootMountRamFs", LOGVFSRAMFSC_PError, "failed to mount RAMFS as root '/'", -NotRooted);
         return -NotRooted;
     }
 
-    PSuccess("RamFS from BootImg/initrd mounted as '/' (root)\n");
+    LOGVFSRAMFSC_PSuccess("RamFS from BootImg/initrd mounted as '/' (root)\n");
     return SysOkay;
 }

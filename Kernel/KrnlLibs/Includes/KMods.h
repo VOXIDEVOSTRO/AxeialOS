@@ -30,3 +30,8 @@ int           ModuleRegistryInit(void);
 int           ModuleRegistryAdd(ModuleRecord* __Rec__);
 ModuleRecord* ModuleRegistryFind(const char* __Name__);
 int           ModuleRegistryRemove(ModuleRecord* __Rec__);
+
+KEXPORT(ModuleRegistryInit);
+KEXPORT(ModuleRegistryAdd);
+KEXPORT(ModuleRegistryFind);
+KEXPORT(ModuleRegistryRemove);

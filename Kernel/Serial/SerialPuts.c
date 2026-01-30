@@ -1,4 +1,50 @@
 #include <Serial.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGSERIALPUTSC_Debug
+#    define LOGSERIALPUTSC_PDebug(fmt, ...) PDebug("[KERNEL>>SerialPuts.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSERIALPUTSC_PDebug(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSERIALPUTSC_Logs
+#    define LOGSERIALPUTSC_PError(fmt, ...) PError("[KERNEL>>SerialPuts.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSERIALPUTSC_PError(fmt, ...)                                                        \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSERIALPUTSC_Logs
+#    define LOGSERIALPUTSC_PWarn(fmt, ...) PWarn("[KERNEL>>SerialPuts.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSERIALPUTSC_PWarn(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSERIALPUTSC_Logs
+#    define LOGSERIALPUTSC_PInfo(fmt, ...) PInfo("[KERNEL>>SerialPuts.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSERIALPUTSC_PInfo(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSERIALPUTSC_Logs
+#    define LOGSERIALPUTSC_PSuccess(fmt, ...) PSuccess("[KERNEL>>SerialPuts.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSERIALPUTSC_PSuccess(fmt, ...)                                                      \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 void
 SerialPutChar(char __Char__)

@@ -27,6 +27,7 @@
 #include <ProbeMgr.h>
 #include <SMP.h>
 #include <Serial.h>
+#include <String.h>
 #include <SymAP.h>
 #include <Sync.h>
 #include <Syscall.h>

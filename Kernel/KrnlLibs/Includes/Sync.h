@@ -47,6 +47,10 @@ void AcquireSemaphore(Semaphore* __Semaphore__, SysErr* __Err__ _unused);
 void ReleaseSemaphore(Semaphore* __Semaphore__, SysErr* __Err__ _unused);
 bool TryAcquireSemaphore(Semaphore* __Semaphore__);
 
+/*BusyWait*/
+void __NONBLOCK__BusyWait(uint64_t __Loops__, SysErr* __Err__);
+void __BLOCK__BusyWait(uint64_t __Loops__, SysErr* __Err__);
+
 extern SpinLock ConsoleLock;
 
 KEXPORT(InitializeSpinLock);

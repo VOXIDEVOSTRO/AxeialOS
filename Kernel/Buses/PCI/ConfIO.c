@@ -2,6 +2,7 @@
 #include <KrnPrintf.h>
 #include <PCIBus.h>
 #include <String.h>
+#include <__AXEKCONF__.h>
 
 /*reads*/
 uint32_t

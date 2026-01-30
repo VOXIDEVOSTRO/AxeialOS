@@ -84,7 +84,3 @@ int    ProcFsNotifyProcRemoved(PosixProc* __Proc__);
 /* Read-only */
 extern const VnodeOps __ProcFsOps__;
 extern const SuperOps __ProcFsSuperOps__;
-
-KEXPORT(ProcFsInit)
-KEXPORT(ProcFsMountImpl)
-KEXPORT(ProcFsRegisterMount)

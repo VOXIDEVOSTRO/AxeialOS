@@ -1,4 +1,50 @@
 #include <Serial.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGSERIALC_Debug
+#    define LOGSERIALC_PDebug(fmt, ...) PDebug("[KERNEL>>Serial.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSERIALC_PDebug(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSERIALC_Logs
+#    define LOGSERIALC_PError(fmt, ...) PError("[KERNEL>>Serial.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSERIALC_PError(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSERIALC_Logs
+#    define LOGSERIALC_PWarn(fmt, ...) PWarn("[KERNEL>>Serial.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSERIALC_PWarn(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSERIALC_Logs
+#    define LOGSERIALC_PInfo(fmt, ...) PInfo("[KERNEL>>Serial.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSERIALC_PInfo(fmt, ...)                                                             \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGSERIALC_Logs
+#    define LOGSERIALC_PSuccess(fmt, ...) PSuccess("[KERNEL>>Serial.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGSERIALC_PSuccess(fmt, ...)                                                          \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 void
 InitializeSerial(void)

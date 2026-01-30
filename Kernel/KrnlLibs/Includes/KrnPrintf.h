@@ -6,9 +6,7 @@
 /*For Spinlocks*/
 #include <Errnos.h>
 #include <Sync.h>
-
-/*Uncomment for Debug Output*/
-// #define DEBUG
+#include <__AXEKCONF__.h>
 
 typedef struct
 {
@@ -49,6 +47,23 @@ typedef struct
 #    define PDebug(fmt, ...)                                                                       \
         do                                                                                         \
         {                                                                                          \
+        } while (0)
+#endif
+
+#ifndef AllErrors
+/*Independent error reporter with cause and returned or returning error code, very useful*/
+#    define PushError(Func, CallLogger, ErrorMsg, RetErrCode)                                      \
+        do                                                                                         \
+        {                                                                                          \
+            CallLogger(                                                                            \
+                "[traceback: %s] %s, errno: %s\n", (Func), (ErrorMsg), ErrName(RetErrCode));       \
+        } while (0)
+#else
+/*Independent error reporter with cause and returned or returning error code, very useful*/
+#    define PushError(Func, CallLogger, ErrorMsg, RetErrCode)                                      \
+        do                                                                                         \
+        {                                                                                          \
+            PError("[traceback: %s] %s, errno: %s\n", (Func), (ErrorMsg), ErrName(RetErrCode));    \
         } while (0)
 #endif
 

@@ -3,6 +3,52 @@
 #include <KrnPrintf.h>
 #include <ProbeMgr.h>
 #include <String.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGDEVCOREC_Debug
+#    define LOGDEVCOREC_PDebug(fmt, ...) PDebug("[KERNEL>>DevCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDEVCOREC_PDebug(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGDEVCOREC_Logs
+#    define LOGDEVCOREC_PError(fmt, ...) PError("[KERNEL>>DevCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDEVCOREC_PError(fmt, ...)                                                           \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGDEVCOREC_Logs
+#    define LOGDEVCOREC_PWarn(fmt, ...) PWarn("[KERNEL>>DevCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDEVCOREC_PWarn(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGDEVCOREC_Logs
+#    define LOGDEVCOREC_PInfo(fmt, ...) PInfo("[KERNEL>>DevCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDEVCOREC_PInfo(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGDEVCOREC_Logs
+#    define LOGDEVCOREC_PSuccess(fmt, ...) PSuccess("[KERNEL>>DevCore.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGDEVCOREC_PSuccess(fmt, ...)                                                         \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 /*DevTree*/
 DeviceTree Devices = {0};
@@ -12,11 +58,15 @@ __FindDeviceByName__(const char* __Name__)
 {
     if (!__Name__)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("__FindDeviceByName__",
+                  LOGDEVCOREC_PError,
+                  "no name passed to __FindDeviceByName__",
+                  -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
 
-    Device* cur = Devices.Devices;
-    while (cur)
+    Device* Cur = Devices.Devices;
+    while (Cur)
     {
         /* explicit compare */
         uint32_t L1 = 0, L2 = 0;
@@ -24,28 +74,29 @@ __FindDeviceByName__(const char* __Name__)
         {
             L1++;
         }
-        while (cur->Name[L2] != '\0')
+        while (Cur->Name[L2] != '\0')
         {
             L2++;
         }
         if (L1 == L2)
         {
-            uint32_t eq = 1;
+            uint32_t Eq = 1;
             for (uint32_t I = 0; I < L1; I++)
             {
-                if (__Name__[I] != cur->Name[I])
+                if (__Name__[I] != Cur->Name[I])
                 {
-                    eq = 0;
+                    Eq = 0;
                     break;
                 }
             }
-            if (eq)
+            if (Eq)
             {
-                return cur;
+                return Cur;
             }
         }
-        cur = cur->Next;
+        Cur = Cur->Next;
     }
+    PushError("__FindDeviceByName__", LOGDEVCOREC_PError, "no such device installed", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }
 
@@ -71,38 +122,52 @@ InstallDevice(const char*  __Name__,
 {
     if (!Devices.Initialized)
     {
-        return -NotInit;
+        PushError("InstallDevice",
+                  LOGDEVCOREC_PError,
+                  "device manager is not initialized",
+                  -NotInitilized);
+        return -NotInitilized;
     }
     if (!__Name__)
     {
-        return -BadArgs;
+        PushError(
+            "InstallDevice", LOGDEVCOREC_PError, "no name passed to InstallDevice", -BadArguments);
+        return -BadArguments;
     }
     if (__Bus__ != BusTypePCI && __Bus__ != BusTypeUSB && __Bus__ != BusTypeNONE)
     {
-        return -BadArgs;
+        PushError("InstallDevice",
+                  LOGDEVCOREC_PError,
+                  "bad bus type passed to InstallDevice",
+                  -BadArguments);
+        return -BadArguments;
     }
     if (__Type__ != DevChar && __Type__ != DevBlock)
     {
-        return -BadArgs;
+        PushError("InstallDevice",
+                  LOGDEVCOREC_PError,
+                  "bad device type passed to InstallDevice",
+                  -BadArguments);
+        return -BadArguments;
     }
 
     SysErr  err;
-    SysErr* Error = &err;
-
-    AcquireSpinLock(&Devices.Lock, Error);
-
+    SysErr* Error     = &err;
     Device* Existence = __FindDeviceByName__(__Name__);
     if (!Probe_IF_Error(Existence) && Existence)
     {
-        ReleaseSpinLock(&Devices.Lock, Error);
+        PushError("InstallDevice", LOGDEVCOREC_PError, "device already installed", -Redefined);
         return -Redefined;
     }
 
     Device* Record = (Device*)KMalloc(sizeof(Device));
-    if (!Record)
+    if (Probe_IF_Error(Record) || !Record)
     {
-        ReleaseSpinLock(&Devices.Lock, Error);
-        return -BadAlloc;
+        PushError("InstallDevice",
+                  LOGDEVCOREC_PError,
+                  "can't allocate memory for new device record",
+                  Pointer_TO_Error(Record));
+        return -BadAllocation;
     }
 
     /* fill fields */
@@ -142,8 +207,6 @@ InstallDevice(const char*  __Name__,
     }
     Devices.Devices = Record;
     Devices.Count++;
-
-    ReleaseSpinLock(&Devices.Lock, Error);
     return SysOkay;
 }
 
@@ -152,23 +215,31 @@ UninstallDevice(const char* __Name__)
 {
     if (!Devices.Initialized)
     {
-        return -NotInit;
+        PushError("UninstallDevice",
+                  LOGDEVCOREC_PError,
+                  "device manager is not initialized",
+                  -NotInitilized);
+        return -NotInitilized;
     }
     if (!__Name__)
     {
-        return -BadArgs;
+        PushError("UninstallDevice",
+                  LOGDEVCOREC_PError,
+                  "no name passed to UninstallDevice",
+                  -BadArguments);
+        return -BadArguments;
     }
 
     SysErr  err;
-    SysErr* Error = &err;
-
-    AcquireSpinLock(&Devices.Lock, Error);
-
+    SysErr* Error  = &err;
     Device* Record = __FindDeviceByName__(__Name__);
     if (Probe_IF_Error(Record) || !Record)
     {
-        ReleaseSpinLock(&Devices.Lock, Error);
-        return Pointer_TO_Error(Record);
+        PushError("UninstallDevice",
+                  LOGDEVCOREC_PError,
+                  "no such device installed",
+                  Pointer_TO_Error(Record));
+        return -NoSuch;
     }
 
     /* unload bonded driver if present */
@@ -196,8 +267,6 @@ UninstallDevice(const char* __Name__)
     }
 
     Devices.Count--;
-    ReleaseSpinLock(&Devices.Lock, Error);
-
     KFree(Record, NULL);
     return SysOkay;
 }
@@ -207,30 +276,36 @@ ResolveDevice(const char* __Name__)
 {
     if (!Devices.Initialized)
     {
-        return -NotInit;
+        PushError("ResolveDevice",
+                  LOGDEVCOREC_PError,
+                  "device manager is not initialized",
+                  -NotInitilized);
+        return -NotInitilized;
     }
     if (!__Name__)
     {
-        return -BadArgs;
+        PushError(
+            "ResolveDevice", LOGDEVCOREC_PError, "no name passed to ResolveDevice", -BadArguments);
+        return -BadArguments;
     }
 
     SysErr  err;
-    SysErr* Error = &err;
-    AcquireSpinLock(&Devices.Lock, Error);
-
+    SysErr* Error  = &err;
     Device* Record = __FindDeviceByName__(__Name__);
     if (Probe_IF_Error(Record) || !Record)
     {
-        ReleaseSpinLock(&Devices.Lock, Error);
-        return Pointer_TO_Error(Record);
+        PushError("ResolveDevice",
+                  LOGDEVCOREC_PError,
+                  "no such device installed",
+                  Pointer_TO_Error(Record));
+        return -NoSuch;
     }
 
     if (!Record->BondedDriver)
     {
-        ReleaseSpinLock(&Devices.Lock, Error);
+        PushError("ResolveDevice", LOGDEVCOREC_PError, "device has no bonded driver", -Missing);
         return -Missing; /* no bonded driver to resolve */
     }
-
     /* Load driver by bonded name if not active */
     if (Record->BondedDriver->State != DriverStateActive)
     {
@@ -238,15 +313,14 @@ ResolveDevice(const char* __Name__)
         if (RetStuff != SysOkay)
         {
             Record->State = DeviceStateFailed;
-            ReleaseSpinLock(&Devices.Lock, Error);
+            PushError(
+                "ResolveDevice", LOGDEVCOREC_PError, "cannot load driver for device", RetStuff);
             return RetStuff;
         }
         IncrementDriverRef(Record->BondedDriver->Info.Name);
     }
 
     Record->State = DeviceStateActive;
-
-    ReleaseSpinLock(&Devices.Lock, Error);
     return SysOkay;
 }
 
@@ -255,7 +329,11 @@ CheckForHardware(SysErr* __Err__)
 {
     if (!Devices.Initialized)
     {
-        SlotError(__Err__, -NotInit);
+        SlotError(__Err__, -NotInitilized);
+        PushError("CheckForHardware",
+                  LOGDEVCOREC_PError,
+                  "device manager is not initialized",
+                  -NotInitilized);
         return;
     }
 
@@ -263,6 +341,7 @@ CheckForHardware(SysErr* __Err__)
     if (Ret != SysOkay)
     {
         SlotError(__Err__, Ret);
+        PushError("CheckForHardware", LOGDEVCOREC_PError, "cannot refresh probes", Ret);
         return;
     }
 }

@@ -38,8 +38,15 @@ typedef struct
 
 extern SmpManager        Smp;
 extern volatile uint32_t CpuStartupCount;
+extern volatile bool     SmpInitialized;
 
 void     InitializeSmp(SysErr* __Err__);
 void     ApEntryPoint(struct limine_smp_info* __CpuInfo__);
 uint32_t GetCurrentCpuId(void);
-void     PerCpuInterruptInit(uint32_t __CpuId__, uint64_t __InterruptStack__, SysErr* __Err__);
+
+bool InitCoreAps(SysErr* __Err__);
+bool ReloadCoreAps(uint32_t __CpuNumber__);
+bool SetApStack(SysErr* __Err__);
+void ReloadStack(uint32_t __CpuNumber__);
+
+void GlobalizePerCPUMem(SysErr* __Err__);

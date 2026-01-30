@@ -1,19 +1,81 @@
 #pragma once
 
-#include <Errnos.h>
+#include <APICTimer.h>
+#include <AllTypes.h>
+#include <AxeSchd.h>
+#include <AxeThreads.h>
+#include <BootConsole.h>
+#include <BootImg.h>
+#include <DevFS.h>
+#include <DevMgr.h>
+#include <DrvMgr.h>
+#include <EarlyBootFB.h>
+#include <GDT.h>
 #include <IDT.h>
+#include <KExports.h>
+#include <KHeap.h>
+#include <KrnPrintf.h>
+#include <LimineServices.h>
+#include <ModELF.h>
+#include <ModMemMgr.h>
+#include <PCIBus.h>
+#include <PMM.h>
+#include <POSIXFd.h>
+#include <POSIXProc.h>
+#include <POSIXProcFS.h>
+#include <POSIXSignals.h>
+#include <ProbeMgr.h>
+#include <Serial.h>
+#include <Sync.h>
+#include <Syscall.h>
+#include <Timer.h>
+#include <VFS.h>
+#include <VMM.h>
 
-typedef struct
+#define PerCPUBuff 256
+
+typedef struct PerCpuData
 {
-
-    GdtEntry         Gdt[MaxGdt]; /* GDT*/
+    uint8_t          Initialized;
+    GdtEntry         Gdt[MaxGdt];
+    IdtEntry         Idt[MaxIdt];
+    TaskStateSegment Tss;
     GdtPointer       GdtPtr;
-    IdtEntry         Idt[MaxIdt]; /* IDT*/
     IdtPointer       IdtPtr;
-    TaskStateSegment Tss;        /* TSS*/
-    uint64_t         StackTop;   /* Stack*/
-    uint64_t         ApicBase;   /* APIC Base*/
-    uint64_t         LocalTicks; /* Timer Data*/
-    uint32_t         LocalInterrupts;
-
+    uint16_t         _TssSelector;
+    uint64_t         Cr3;
+    uint64_t         PageDirectoryBase;
+    uint64_t         PageTableBase;
+    uint64_t         VirtualBase;
+    uint64_t         PhysicalBase;
+    uint64_t         StackTop;
+    uint64_t         KernelStackBase;
+    uint64_t         UserStackBase;
+    ThreadContext    CurrentContext;
+    uint64_t         TimerFrequency;
+    uint64_t         TimerInitCount;
+    uint64_t         TimerCurrCount;
+    uint64_t         TimerEOIAddr;
+    uint64_t         TimerDivide;
+    uint64_t         _TimerVector;
+    uint8_t          TimerActive;
+    uint64_t         ApicBase;
+    uint64_t         LocalTicks;
+    uint64_t         LocalInterrupts;
+    CpuScheduler     Scheduler;
+    Thread*          CurrentThread;
+    Thread*          IdleThread;
+    uint64_t         ContextSwitches;
+    uint64_t         CpuLoad;
+    uint32_t         BufferHead;
+    uint32_t         BufferTail;
+    uint32_t         BufferCapacity;
+    uint64_t         Buffer[PerCPUBuff];
+    uint64_t         Cr0, Cr2, Cr4;
+    uint64_t         Rflags;
+    uint64_t         Rip;
+    uint32_t         CpuId;
+    uint32_t         ApicId;
+    uint8_t          Online;
+    uint8_t          Started;
 } PerCpuData;

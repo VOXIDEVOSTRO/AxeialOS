@@ -1,4 +1,5 @@
 #include <PMM.h>
+#include <__AXEKCONF__.h>
 
 void*
 PhysToVirt(uint64_t __PhysAddr__)

@@ -4,6 +4,7 @@
 #include <ELFL.h>
 #include <KHeap.h>
 #include <KrnPrintf.h>
+#include <PMM.h>
 #include <POSIXFd.h>
 #include <POSIXProc.h>
 #include <POSIXProcFS.h>
@@ -13,6 +14,52 @@
 #include <Timer.h>
 #include <VFS.h>
 #include <VMM.h>
+#include <__AXEKCONF__.h>
+
+#ifdef LOGPROCC_Debug
+#    define LOGPROCC_PDebug(fmt, ...) PDebug("[KERNEL>>Proc.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCC_PDebug(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROCC_Logs
+#    define LOGPROCC_PError(fmt, ...) PError("[KERNEL>>Proc.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCC_PError(fmt, ...)                                                              \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROCC_Logs
+#    define LOGPROCC_PWarn(fmt, ...) PWarn("[KERNEL>>Proc.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCC_PWarn(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROCC_Logs
+#    define LOGPROCC_PInfo(fmt, ...) PInfo("[KERNEL>>Proc.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCC_PInfo(fmt, ...)                                                               \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
+
+#ifdef LOGPROCC_Logs
+#    define LOGPROCC_PSuccess(fmt, ...) PSuccess("[KERNEL>>Proc.c] " fmt, ##__VA_ARGS__)
+#else
+#    define LOGPROCC_PSuccess(fmt, ...)                                                            \
+        do                                                                                         \
+        {                                                                                          \
+        } while (0)
+#endif
 
 #define __attribute_unused__ __attribute__((unused))
 
@@ -26,7 +73,7 @@
 
 #define RlimitMaxRss (64ULL * 1024ULL * 1024ULL)
 
-/* Atomic helpers for clarity */
+/*Atomic monsters*/
 #define ATOMIC_LOAD(ptr)           atomic_load(&(ptr))
 #define ATOMIC_STORE(ptr, val)     atomic_store(&(ptr), (val))
 #define ATOMIC_FETCH_ADD(ptr, val) atomic_fetch_add(&(ptr), (val))
@@ -63,9 +110,9 @@ static void __WakeParent__(PosixProc* __Parent__, PosixProc* __Child__, SysErr* 
 static int  __DeliverPendingSignals__(PosixProc* __Proc__);
 
 static inline long
-__Min__(long a, long IdxUal)
+__Min__(long Idx, long IdxUal)
 {
-    return a < IdxUal ? a : IdxUal;
+    return Idx < IdxUal ? Idx : IdxUal;
 }
 
 char
@@ -74,7 +121,7 @@ __ProcStateCode__(PosixProc* __Proc__)
     if (Probe_IF_Error(__Proc__) || !__Proc__)
     {
         return 'X';
-    } /* dead/invalid */
+    } /* dead/bad */
     if (ATOMIC_LOAD(__Proc__->Zombie))
     {
         return 'Z';
@@ -112,6 +159,10 @@ __CurrentProc__(void)
     Thread*  Thrd = GetCurrentThread(CPU);
     if (Probe_IF_Error(Thrd) || !Thrd)
     {
+        PushError("__CurrentProc__",
+                  LOGPROCC_PError,
+                  "No current thread in __CurrentProc__",
+                  Pointer_TO_Error(Thrd));
         return Error_TO_Pointer(-BadEntity);
     }
     return PosixFind((long)ATOMIC_LOAD(Thrd->ProcessId));
@@ -124,19 +175,28 @@ PosixProcCreate(void)
     SysErr* Error = &err;
     if (__CreateTableIfNeeded__() != SysOkay)
     {
-        return Error_TO_Pointer(-NoSuch);
+        PushError("PosixProcCreate",
+                  LOGPROCC_PError,
+                  "Failed to create process table in PosixProcCreate",
+                  -NotInitilized);
+        return Error_TO_Pointer(-NotInitilized);
     }
 
     PosixProc* Proc = __AllocProc__();
     if (Probe_IF_Error(Proc) || !Proc)
     {
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("PosixProcCreate",
+                  LOGPROCC_PError,
+                  "Failed to allocate PosixProc in PosixProcCreate",
+                  Pointer_TO_Error(Proc));
+        return Error_TO_Pointer(-BadAllocation);
     }
 
     Proc->Pid = __FindFreePid__();
     if (Proc->Pid <= 0)
     {
         __FreeProc__(Proc, Error);
+        PushError("PosixProcCreate", LOGPROCC_PError, "No free PID in PosixProcCreate", -Depleted);
         return Error_TO_Pointer(-Depleted);
     }
 
@@ -158,30 +218,42 @@ PosixProcCreate(void)
     if (__SetDefaultFds__(Proc) != SysOkay)
     {
         __FreeProc__(Proc, Error);
-        return Error_TO_Pointer(-NotInit);
+        PushError("PosixProcCreate",
+                  LOGPROCC_PError,
+                  "Failed to set default Fds in PosixProcCreate",
+                  -NotInitilized);
+        return Error_TO_Pointer(-NotInitilized);
     }
 
     Proc->Space = CreateVirtualSpace();
     if (Probe_IF_Error(Proc->Space) || !Proc->Space)
     {
         __FreeProc__(Proc, Error);
+        PushError("PosixProcCreate",
+                  LOGPROCC_PError,
+                  "Failed to create virtual space in PosixProcCreate",
+                  Pointer_TO_Error(Proc->Space));
         return Error_TO_Pointer(-NotCanonical);
     }
 
-    PDebug("Allocated At: %llx\n", (unsigned long long)Proc->Space->PhysicalBase);
+    LOGPROCC_PDebug("Allocated At: %llx\n", (unsigned long long)Proc->Space->PhysicalBase);
 
     __PopulateTimesStart__(Proc);
 
     if (__TableInsert__(Proc) != SysOkay)
     {
         __FreeProc__(Proc, Error);
-        return Error_TO_Pointer(-ErrReturn);
+        PushError("PosixProcCreate",
+                  LOGPROCC_PError,
+                  "Failed to insert into process table in PosixProcCreate",
+                  -BadReturn);
+        return Error_TO_Pointer(-BadReturn);
     }
 
-    /* Mirror into /proc */
+    /* Mirror into /Proc */
     ProcFsNotifyProcAdded(Proc);
 
-    PSuccess("New Processes with PID=%ld\n", Proc->Pid);
+    LOGPROCC_PSuccess("New Processes with PID=%ld\n", Proc->Pid);
     return Proc;
 }
 
@@ -197,18 +269,27 @@ PosixProcExecve(PosixProc*         __Proc__,
     if (Probe_IF_Error(__Proc__) || !__Proc__ || Probe_IF_Error(__Path__) || !__Path__ ||
         __Path__[0] == '\0')
     {
-        return -BadArgs;
+        PushError("PosixProcExecve", LOGPROCC_PError, "Bad args to PosixProcExecve", -BadArguments);
+        return -BadArguments;
     }
 
     File* F = NULL;
     if (__ResolveExecFile__(__Path__, &F) != SysOkay || !F)
     {
+        PushError("PosixProcExecve",
+                  LOGPROCC_PError,
+                  "Failed to resolve exec file in PosixProcExecve",
+                  -NoSuch);
         return -NoSuch;
     }
 
     if (Probe_IF_Error(__Proc__->Space) || !__Proc__->Space || __Proc__->Space->PhysicalBase == 0)
     {
         VfsClose(F);
+        PushError("PosixProcExecve",
+                  LOGPROCC_PError,
+                  "Bad virtual space in PosixProcExecve",
+                  -NotCanonical);
         return -NotCanonical;
     }
 
@@ -218,29 +299,46 @@ PosixProcExecve(PosixProc*         __Proc__,
     if (Elf64Load(F, __Proc__->Space, &Img) != SysOkay)
     {
         VfsClose(F);
-        return -ErrReturn;
+        PushError("PosixProcExecve",
+                  LOGPROCC_PError,
+                  "Failed to load ELF in PosixProcExecve",
+                  -BadReturn);
+        return -BadReturn;
     }
 
     /* Build Comm/cmdline/environ buffers */
     if (__BuildArgsEnv__(__Argv__, __Envp__, __Path__, __Proc__) != SysOkay)
     {
         VfsClose(F);
-        return -ErrReturn;
+        PushError("PosixProcExecve",
+                  LOGPROCC_PError,
+                  "Failed to build args/env in PosixProcExecve",
+                  -BadReturn);
+        return -BadReturn;
     }
 
     VfsClose(F);
 
-    uint64_t UserSp = 0;
-    if (SetStack(__Proc__->Space, __Argv__, __Envp__, /*Nx*/ 1, &UserSp) == Nothing)
+    uint64_t UserSp = SetStack(__Proc__->Space, __Argv__, __Envp__, /*Nx*/ 1, &UserSp);
+    if (UserSp == Nothing)
     {
-        return -ErrReturn;
+        PushError("PosixProcExecve",
+                  LOGPROCC_PError,
+                  "Failed to set user stack in PosixProcExecve",
+                  -BadReturn);
+        return -BadReturn;
     }
 
+    atomic_bool ToExec = ATOMIC_VAR_INIT(false);
     if (Probe_IF_Error(__Proc__->MainThread) || !__Proc__->MainThread)
     {
         Thread* Th = CreateThread(ThreadTypeUser, (void*)Img.Entry, NULL, ThreadPriorityNormal);
         if (Probe_IF_Error(Th) || !Th)
         {
+            PushError("PosixProcExecve",
+                      LOGPROCC_PError,
+                      "Failed to create main thread in PosixProcExecve",
+                      Pointer_TO_Error(Th));
             return -BadEntity;
         }
 
@@ -250,47 +348,70 @@ PosixProcExecve(PosixProc*         __Proc__,
         ATOMIC_STORE(Th->State, ThreadStateReady);
         ATOMIC_STORE(Th->PageDirectory, (uint64_t)__Proc__->Space->PhysicalBase);
         ATOMIC_STORE(Th->ProcessId, __Proc__->Pid);
+        LOGPROCC_PDebug("user stack in thread context: UserSp=0x%llx\n",
+                        (unsigned long long)UserSp);
 
         if (__AttachThread__(__Proc__, Th) != SysOkay)
         {
             DestroyThread(Th, Error);
-            return -NotInit;
+            PushError("PosixProcExecve",
+                      LOGPROCC_PError,
+                      "Failed to attach main thread in PosixProcExecve",
+                      -BadReturn);
+            return -BadReturn;
         }
 
-        PDebug("Thread RIP=0x%llx RSP=0x%llx PD=0x%llx\n",
-               (unsigned long long)ATOMIC_LOAD(Th->Context.Rip),
-               (unsigned long long)ATOMIC_LOAD(Th->Context.Rsp),
-               (unsigned long long)ATOMIC_LOAD(Th->PageDirectory));
+        LOGPROCC_PDebug("Thread RIP=0x%llx RSP=0x%llx PD=0x%llx\n",
+                        (unsigned long long)ATOMIC_LOAD(Th->Context.Rip),
+                        (unsigned long long)ATOMIC_LOAD(Th->Context.Rsp),
+                        (unsigned long long)ATOMIC_LOAD(Th->PageDirectory));
+        atomic_store_explicit(&ToExec, true, memory_order_seq_cst);
     }
     else
     {
         Thread* Th = __Proc__->MainThread;
+
         /* thread is in a reusable state */
         if (ATOMIC_LOAD(Th->State) == ThreadStateTerminated ||
             ATOMIC_LOAD(Th->State) == ThreadStateZombie)
         {
+            PushError("PosixProcExecve",
+                      LOGPROCC_PError,
+                      "Main thread is terminated/zombie in PosixProcExecve",
+                      -Dangling);
             return -Dangling;
         }
 
+        memset(&Th->Context, 0, sizeof(ThreadContext));
         ATOMIC_STORE(Th->Context.Rip, Img.Entry);
         ATOMIC_STORE(Th->Context.Rsp, UserSp);
+        ATOMIC_STORE(Th->Context.Rflags, 0x202);
+        ATOMIC_STORE(Th->Context.Cs, UserCodeSelector);
+        ATOMIC_STORE(Th->Context.Ss, UserDataSelector);
+        memset(Th->Context.FpuState, 0, sizeof(Th->Context.FpuState));
+        Th->ExitCode   = 0;
+        Th->SignalMask = 0;
+        memset(Th->SignalHandlers, 0, sizeof(Th->SignalHandlers));
         ATOMIC_STORE(Th->Type, ThreadTypeUser);
         ATOMIC_STORE(Th->State, ThreadStateReady);
         ATOMIC_STORE(Th->PageDirectory, (uint64_t)__Proc__->Space->PhysicalBase);
         ATOMIC_STORE(Th->ProcessId, __Proc__->Pid);
-
-        PDebug("Thread RIP=0x%llx RSP=0x%llx PD=0x%llx\n",
-               (unsigned long long)ATOMIC_LOAD(Th->Context.Rip),
-               (unsigned long long)ATOMIC_LOAD(Th->Context.Rsp),
-               (unsigned long long)ATOMIC_LOAD(Th->PageDirectory));
+        LOGPROCC_PDebug("Thread RIP=0x%llx RSP=0x%llx PD=0x%llx\n",
+                        (unsigned long long)ATOMIC_LOAD(Th->Context.Rip),
+                        (unsigned long long)ATOMIC_LOAD(Th->Context.Rsp),
+                        (unsigned long long)ATOMIC_LOAD(Th->PageDirectory));
+        atomic_store_explicit(&ToExec, false, memory_order_seq_cst);
     }
 
     /* Reset process status */
     ATOMIC_STORE(__Proc__->Zombie, 0);
     ATOMIC_STORE(__Proc__->ExitCode, 0);
 
-    PSuccess("New Process executed with PID=%ld '%s'\n", __Proc__->Pid, __Path__);
-    ThreadExecute(__Proc__->MainThread, Error);
+    if (ToExec)
+    {
+        ThreadExecute(__Proc__->MainThread, Error);
+        LOGPROCC_PSuccess("New Process executed with PID=%ld '%s'\n", __Proc__->Pid, __Path__);
+    }
     return SysOkay;
 }
 
@@ -307,19 +428,25 @@ PosixFork(PosixProc* __Parent__, PosixProc** __OutChild__)
         !__OutChild__ || Probe_IF_Error(__Parent__->MainThread) || !__Parent__->MainThread ||
         Probe_IF_Error(__Parent__->Space) || !__Parent__->Space)
     {
-        return -BadArgs;
+        PushError("PosixFork", LOGPROCC_PError, "Bad args to PosixFork", -BadArguments);
+        return -BadArguments;
     }
 
     uint64_t __ParentRip__ = ATOMIC_LOAD(__Parent__->MainThread->Context.Rip);
     uint64_t __ParentRsp__ = ATOMIC_LOAD(__Parent__->MainThread->Context.Rsp);
     if (!__IsUserVa__(__ParentRip__) || !__IsUserVa__(__ParentRsp__))
     {
+        PushError("PosixFork", LOGPROCC_PError, "Bad user RIP/RSP in PosixFork", -NotCanonical);
         return -NotCanonical;
     }
 
     PosixProc* Child = PosixProcCreate();
     if (Probe_IF_Error(Child) || !Child)
     {
+        PushError("PosixFork",
+                  LOGPROCC_PError,
+                  "Failed to create child process in PosixFork",
+                  Pointer_TO_Error(Child));
         return -BadEntity;
     }
 
@@ -332,8 +459,9 @@ PosixFork(PosixProc* __Parent__, PosixProc** __OutChild__)
 
     if (__ForkCopyFds__(__Parent__, Child) != SysOkay)
     {
-        PosixExit(Child, -1);
-        return -ErrReturn;
+        PosixExit(Child, SysErro);
+        PushError("PosixFork", LOGPROCC_PError, "Failed to copy Fds in PosixFork", -BadReturn);
+        return -BadReturn;
     }
 
     Thread* Pth = __Parent__->MainThread;
@@ -341,11 +469,84 @@ PosixFork(PosixProc* __Parent__, PosixProc** __OutChild__)
         CreateThread(ThreadTypeUser, (void*)__ParentRip__, NULL, ATOMIC_LOAD(Pth->Priority));
     if (Probe_IF_Error(Cth) || !Cth)
     {
-        PosixExit(Child, -1);
+        PosixExit(Child, SysErro);
+        PushError("PosixFork",
+                  LOGPROCC_PError,
+                  "Failed to create child thread in PosixFork",
+                  Pointer_TO_Error(Cth));
         return -BadEntity;
     }
 
-    /* Copy parent context, adjust for child */
+    /*CoW mappings*/
+    uint64_t* Pml4 = __Parent__->Space->Pml4;
+    for (uint64_t Lvl4 = 0; Lvl4 < 512; Lvl4++)
+    {
+        uint64_t Pml4E = Pml4[Lvl4];
+        if (!(Pml4E & PTEPRESENT))
+        {
+            continue;
+        }
+        uint64_t* Pdpt = (uint64_t*)PhysToVirt(Pml4E & ~0xFFFULL);
+
+        for (uint64_t Lvl3 = 0; Lvl3 < 512; Lvl3++)
+        {
+            uint64_t PdptE = Pdpt[Lvl3];
+            if (!(PdptE & PTEPRESENT))
+            {
+                continue;
+            }
+            if (PdptE & (1ULL << 7))
+            {
+                continue;
+            }
+            uint64_t* Pd = (uint64_t*)PhysToVirt(PdptE & ~0xFFFULL);
+
+            for (uint64_t Lvl2 = 0; Lvl2 < 512; Lvl2++)
+            {
+                uint64_t PdE = Pd[Lvl2];
+                if (!(PdE & PTEPRESENT))
+                {
+                    continue;
+                }
+                if (PdE & (1ULL << 7))
+                {
+                    continue;
+                }
+                uint64_t* Pt = (uint64_t*)PhysToVirt(PdE & ~0xFFFULL);
+
+                for (uint64_t Lvl1 = 0; Lvl1 < 512; Lvl1++)
+                {
+                    uint64_t Leaf = Pt[Lvl1];
+                    if (!(Leaf & PTEPRESENT) || !(Leaf & PTEUSER))
+                    {
+                        continue;
+                    }
+
+                    uint64_t VirtAddr = ((Lvl4 << 39) | (Lvl3 << 30) | (Lvl2 << 21) | (Lvl1 << 12));
+                    if (!__IsUserVa__(VirtAddr))
+                    {
+                        continue;
+                    }
+
+                    uint64_t Phys = Leaf & 0x000FFFFFFFFFF000ULL;
+                    uint64_t Flgs = (Leaf & (PTEUSER | PTEPRESENT | PTENOEXECUTE));
+                    Flgs &= ~PTEWRITABLE; /*Read-Only*/
+                    MapPage(Child->Space, VirtAddr, Phys, Flgs);
+                    MapPage(__Parent__->Space, VirtAddr, Phys, Flgs);
+
+                    SysErr Err;
+                    IncPageRef(Phys, &Err);
+
+                    LOGPROCC_PDebug("CoW fork: VA=0x%llx PA=0x%llx refs=%u\n",
+                                    (unsigned long long)VirtAddr,
+                                    (unsigned long long)Phys,
+                                    (unsigned)GetPageRef(Phys));
+                }
+            }
+        }
+    }
+
+    /* Copy parent context (except rax)*/
     Cth->Context = Pth->Context;
     ATOMIC_STORE(Cth->Context.Rax, 0); /* fork return value in child */
     ATOMIC_STORE(Cth->Context.Rip, __ParentRip__);
@@ -354,101 +555,27 @@ PosixFork(PosixProc* __Parent__, PosixProc** __OutChild__)
     ATOMIC_STORE(Cth->Context.Ss, UserDataSelector);
     ATOMIC_STORE(Cth->Context.Rflags, 0x202);
     ATOMIC_STORE(Cth->Type, ThreadTypeUser);
-    ATOMIC_STORE(Cth->State, ThreadStateReady);
     ATOMIC_STORE(Cth->PageDirectory, (uint64_t)Child->Space->PhysicalBase);
     ATOMIC_STORE(Cth->ProcessId, (uint32_t)Child->Pid);
 
     SysErr  err;
     SysErr* Error = &err;
 
-    /* More direct copy
-        TODO: Probably add COW(Copy On Write)
-        Which is way more efficient */
-    uint64_t* __Pml4__ = __Parent__->Space->Pml4;
-    for (uint64_t l4 = 0; l4 < 512; l4++)
-    {
-        uint64_t __Pml4e__ = __Pml4__[l4];
-        if (!(__Pml4e__ & PTEPRESENT))
-        {
-            continue;
-        }
-        uint64_t* __Pdpt__ = (uint64_t*)PhysToVirt(__Pml4e__ & ~0xFFFULL);
-
-        for (uint64_t l3 = 0; l3 < 512; l3++)
-        {
-            uint64_t __Pdpte__ = __Pdpt__[l3];
-            if (!(__Pdpte__ & PTEPRESENT))
-            {
-                continue;
-            }
-            if (__Pdpte__ & (1ULL << 7))
-            {
-                continue; /* skip huge */
-            }
-            uint64_t* __Pd__ = (uint64_t*)PhysToVirt(__Pdpte__ & ~0xFFFULL);
-
-            for (uint64_t l2 = 0; l2 < 512; l2++)
-            {
-                uint64_t __Pde__ = __Pd__[l2];
-                if (!(__Pde__ & PTEPRESENT))
-                {
-                    continue;
-                }
-                if (__Pde__ & (1ULL << 7))
-                {
-                    continue; /* skip huge */
-                }
-                uint64_t* __Pt__ = (uint64_t*)PhysToVirt(__Pde__ & ~0xFFFULL);
-
-                for (uint64_t l1 = 0; l1 < 512; l1++)
-                {
-                    uint64_t __Leaf__ = __Pt__[l1];
-                    if (!(__Leaf__ & PTEPRESENT) || !(__Leaf__ & PTEUSER))
-                    {
-                        continue;
-                    }
-
-                    uint64_t __Va__ = ((l4 << 39) | (l3 << 30) | (l2 << 21) | (l1 << 12));
-                    if (!__IsUserVa__(__Va__))
-                    {
-                        continue;
-                    }
-
-                    uint64_t __SrcPhys__ = __Leaf__ & 0x000FFFFFFFFFF000ULL;
-                    uint64_t __NewPhys__ = AllocPage();
-                    if (__NewPhys__ == 0)
-                    {
-                        PosixExit(Child, -1);
-                        return -NotCanonical;
-                    }
-
-                    uint8_t* __Dst__ = (uint8_t*)PhysToVirt(__NewPhys__);
-                    uint8_t* __Src__ = (uint8_t*)PhysToVirt(__SrcPhys__);
-                    memcpy(__Dst__, __Src__, (size_t)PageSize);
-
-                    uint64_t __Flags__ =
-                        __Leaf__ & (PTEWRITABLE | PTEUSER | PTEPRESENT | PTEWRITETHROUGH |
-                                    PTECACHEDISABLE | PTEACCESSED | PTEDIRTY | PTENOEXECUTE);
-
-                    MapPage(Child->Space, __Va__, __NewPhys__, __Flags__);
-                }
-            }
-        }
-    }
-
     if (__AttachThread__(Child, Cth) != SysOkay)
     {
         DestroyThread(Cth, Error);
-        PosixExit(Child, -1);
-        return -NotInit;
+        PosixExit(Child, SysErro);
+        PushError(
+            "PosixFork", LOGPROCC_PError, "Failed to attach child thread in PosixFork", -BadReturn);
+        return -BadReturn;
     }
 
     *__OutChild__ = Child;
 
-    PDebug("Forked child with PID=%ld and context RIP=0x%llx and RSP=0x%llx\n",
-           Child->Pid,
-           (unsigned long long)ATOMIC_LOAD(Cth->Context.Rip),
-           (unsigned long long)ATOMIC_LOAD(Cth->Context.Rsp));
+    LOGPROCC_PDebug("Forked child with PID=%ld and context RIP=0x%llx and RSP=0x%llx\n",
+                    Child->Pid,
+                    (unsigned long long)ATOMIC_LOAD(Cth->Context.Rip),
+                    (unsigned long long)ATOMIC_LOAD(Cth->Context.Rsp));
 
     ThreadExecute(Cth, Error);
     return Child->Pid;
@@ -459,7 +586,8 @@ PosixExit(PosixProc* __Proc__, int __Status__)
 {
     if (Probe_IF_Error(__Proc__) || !__Proc__)
     {
-        return -BadArgs;
+        PushError("PosixExit", LOGPROCC_PError, "Bad args to PosixExit", -BadArguments);
+        return -BadArguments;
     }
 
     SysErr  err;
@@ -492,7 +620,8 @@ PosixExit(PosixProc* __Proc__, int __Status__)
         {
             ATOMIC_STORE(ThreadPtr->State, ThreadStateTerminated);
             DestroyThread(ThreadPtr, Error);
-            PSuccess("Destroyed ThreadId=%u of Pid=%u\n", ThreadPtr->ThreadId, __Proc__->Pid);
+            LOGPROCC_PSuccess(
+                "Destroyed ThreadId=%u of Pid=%u\n", ThreadPtr->ThreadId, __Proc__->Pid);
         }
         ThreadPtr = NextThread;
     }
@@ -505,7 +634,10 @@ PosixExit(PosixProc* __Proc__, int __Status__)
         __WakeParent__(ParentProc, __Proc__, Error);
     }
 
-    PSuccess("Exited with Pid=%ld Status=%d\n", __Proc__->Pid, __Status__);
+    LOGPROCC_PSuccess("Exited with Pid=%ld Status=%d ExitCode=%d\n",
+                      __Proc__->Pid,
+                      __Status__,
+                      __Proc__->ExitCode);
     return SysOkay;
 }
 
@@ -518,7 +650,8 @@ PosixWait4(PosixProc*   __Parent__,
 {
     if (Probe_IF_Error(__Parent__) || !__Parent__)
     {
-        return -BadEntity;
+        PushError("PosixWait4", LOGPROCC_PError, "Bad args to PosixWait4", -BadArguments);
+        return -BadArguments;
     }
 
     long TargetPid = __Pid__;
@@ -560,7 +693,7 @@ PosixWait4(PosixProc*   __Parent__,
                 SysErr  err;
                 SysErr* Error = &err;
                 __FreeProc__(P, Error);
-                PSuccess("Reaped=%ld\n", ReapedId);
+                LOGPROCC_PSuccess("Reaped=%ld\n", ReapedId);
                 return ReapedId;
             }
         }
@@ -586,7 +719,8 @@ PosixSetSid(PosixProc* __Proc__)
 {
     if (Probe_IF_Error(__Proc__) || !__Proc__)
     {
-        return -BadArgs;
+        PushError("PosixSetSid", LOGPROCC_PError, "Bad args to PosixSetSid", -BadArguments);
+        return -BadArguments;
     }
     ATOMIC_STORE(__Proc__->Sid, __Proc__->Pid);
     ATOMIC_STORE(__Proc__->Pgrp, __Proc__->Pid);
@@ -598,7 +732,8 @@ PosixSetPgrp(PosixProc* __Proc__, long __Pgid__)
 {
     if (Probe_IF_Error(__Proc__) || !__Proc__ || __Pgid__ <= 0)
     {
-        return -BadArgs;
+        PushError("PosixSetPgrp", LOGPROCC_PError, "Bad args to PosixSetPgrp", -BadArguments);
+        return -BadArguments;
     }
     ATOMIC_STORE(__Proc__->Pgrp, __Pgid__);
     return SysOkay;
@@ -630,10 +765,12 @@ PosixChdir(PosixProc* __Proc__, const char* __Path__)
 {
     if (Probe_IF_Error(__Proc__) || !__Proc__ || Probe_IF_Error(__Path__) || !__Path__)
     {
-        return -BadArgs;
+        PushError("PosixChdir", LOGPROCC_PError, "Bad args to PosixChdir", -BadArguments);
+        return -BadArguments;
     }
     if (VfsIsDir(__Path__) != SysOkay)
     {
+        PushError("PosixChdir", LOGPROCC_PError, "Path is not a directory in PosixChdir", -NoSuch);
         return -NoSuch;
     }
     strcpy(__Proc__->Cwd, __Path__, MaxPathLen);
@@ -646,16 +783,20 @@ PosixFchdir(PosixProc* __Proc__, int __Fd__)
     if (Probe_IF_Error(__Proc__) || !__Proc__ || __Fd__ < 0 || Probe_IF_Error(__Proc__->Fds) ||
         !__Proc__->Fds)
     {
-        return -BadArgs;
+        PushError("PosixFchdir", LOGPROCC_PError, "Bad args to PosixFchdir", -BadArguments);
+        return -BadArguments;
     }
 
     VfsStat St = {0};
     if (PosixFstat(__Proc__->Fds, __Fd__, &St) != SysOkay)
     {
-        return -ErrReturn;
+        PushError("PosixFchdir", LOGPROCC_PError, "Failed to fstat fd in PosixFchdir", -BadReturn);
+        return -BadReturn;
     }
     if (St.Type != VNodeDIR)
     {
+        PushError(
+            "PosixFchdir", LOGPROCC_PError, "Path is not a directory in PosixFchdir", -BadEntity);
         return -BadEntity;
     }
 
@@ -667,7 +808,8 @@ PosixSetUmask(PosixProc* __Proc__, long __Mask__)
 {
     if (Probe_IF_Error(__Proc__) || !__Proc__)
     {
-        return -BadEntity;
+        PushError("PosixSetUmask", LOGPROCC_PError, "Bad args to PosixSetUmask", -BadArguments);
+        return -BadArguments;
     }
     ATOMIC_STORE(__Proc__->Cred.Umask, (__Mask__ & 0777));
     return SysOkay;
@@ -679,7 +821,8 @@ PosixGetTty(PosixProc* __Proc__, char* __Out__, long __Len__)
     if (Probe_IF_Error(__Proc__) || !__Proc__ || Probe_IF_Error(__Out__) || !__Out__ ||
         __Len__ <= 0)
     {
-        return -BadArgs;
+        PushError("PosixGetTty", LOGPROCC_PError, "Bad args to PosixGetTty", -BadArguments);
+        return -BadArguments;
     }
     if (Probe_IF_Error(__Proc__->TtyName) || !__Proc__->TtyName)
     {
@@ -698,6 +841,7 @@ PosixKill(long __Pid__, int __Sig__)
     PosixProc* P = PosixFind(__Pid__);
     if (Probe_IF_Error(P) || !P)
     {
+        PushError("PosixKill", LOGPROCC_PError, "No such process in PosixKill", -NoSuch);
         return -NoSuch;
     }
     /* Enqueue signal bit */
@@ -712,7 +856,9 @@ PosixTkill(long __Tid__, int __Sig__)
     Thread* Th = FindThreadById((uint32_t)__Tid__);
     if (Probe_IF_Error(Th) || !Th)
     {
-        return -BadEntity;
+        PushError(
+            "PosixTkill", LOGPROCC_PError, "No such thread in PosixTkill", Pointer_TO_Error(Th));
+        return -NoSuch;
     }
     return PosixKill((long)ATOMIC_LOAD(Th->ProcessId), __Sig__);
 }
@@ -722,12 +868,20 @@ PosixSigaction(int __Sig__, const PosixSigAction* __Act__, PosixSigAction* __Old
 {
     if (__Sig__ <= 0 || __Sig__ > 31)
     {
+        PushError("PosixSigaction",
+                  LOGPROCC_PError,
+                  "Bad signal number in PosixSigaction",
+                  -NotCanonical);
         return -NotCanonical;
     }
 
     PosixProc* P = __CurrentProc__();
     if (Probe_IF_Error(P) || !P || Probe_IF_Error(P->MainThread) || !P->MainThread)
     {
+        PushError("PosixSigaction",
+                  LOGPROCC_PError,
+                  "Bad current process/thread in PosixSigaction",
+                  Pointer_TO_Error(P));
         return -BadEntity;
     }
 
@@ -755,6 +909,10 @@ PosixSigprocmask(int __How__, const uint64_t* __Set__, uint64_t* __OldSet__)
     PosixProc* P = __CurrentProc__();
     if (Probe_IF_Error(P) || !P)
     {
+        PushError("PosixSigprocmask",
+                  LOGPROCC_PError,
+                  "Bad current process in PosixSigprocmask",
+                  Pointer_TO_Error(P));
         return -BadEntity;
     }
     if (__OldSet__)
@@ -789,7 +947,8 @@ PosixSigpending(uint64_t* __OutMask__)
 {
     if (Probe_IF_Error(__OutMask__) || !__OutMask__)
     {
-        return -BadArgs;
+        PushError("PosixSigpending", LOGPROCC_PError, "Bad args to PosixSigpending", -BadArguments);
+        return -BadArguments;
     }
     PosixProc* P = __CurrentProc__();
     if (Probe_IF_Error(P) || !P)
@@ -838,10 +997,11 @@ PosixFind(long __Pid__)
 {
     if (__Pid__ <= 0 || !PosixProcs.Items)
     {
-        return Error_TO_Pointer(-BadArgs);
+        PushError("PosixFind", LOGPROCC_PError, "Bad args to PosixFind", -BadArguments);
+        return Error_TO_Pointer(-BadArguments);
     }
-    long count = PosixProcs.Count; /* benign read */
-    for (long I = 0; I < count; I++)
+    long Count = PosixProcs.Count; /* benign read */
+    for (long I = 0; I < Count; I++)
     {
         PosixProc* P = PosixProcs.Items[I];
         if (P && ATOMIC_LOAD(P->Pid) == __Pid__)
@@ -849,6 +1009,7 @@ PosixFind(long __Pid__)
             return P;
         }
     }
+    PushError("PosixFind", LOGPROCC_PError, "No such process in PosixFind", -NoSuch);
     return Error_TO_Pointer(-NoSuch);
 }
 
@@ -865,7 +1026,11 @@ __CreateTableIfNeeded__(void)
     PosixProcs.Items = (PosixProc**)KMalloc(sizeof(PosixProc*) * (size_t)PosixProcs.Cap);
     if (!PosixProcs.Items)
     {
-        return -BadAlloc;
+        PushError("__CreateTableIfNeeded__",
+                  LOGPROCC_PError,
+                  "Failed to alloc process table in __CreateTableIfNeeded__",
+                  Pointer_TO_Error(PosixProcs.Items));
+        return -BadAllocation;
     }
     SysErr  err;
     SysErr* Error = &err;
@@ -896,6 +1061,8 @@ __TableInsert__(PosixProc* __Proc__)
     if (count >= PosixProcs.Cap)
     {
         ReleaseSpinLock(&PosixProcs.Lock, Error);
+        PushError(
+            "__TableInsert__", LOGPROCC_PError, "Process table full in __TableInsert__", -TooMany);
         return -TooMany;
     }
     PosixProcs.Items[count] = __Proc__;
@@ -938,10 +1105,14 @@ __AllocProc__(void)
     PosixProc* P     = (PosixProc*)KMalloc(sizeof(PosixProc));
     if (Probe_IF_Error(P) || !P)
     {
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("__AllocProc__",
+                  LOGPROCC_PError,
+                  "Failed to alloc PosixProc in __AllocProc__",
+                  Pointer_TO_Error(P));
+        return Error_TO_Pointer(-BadAllocation);
     }
     memset(P, 0, sizeof(*P));
-    InitializeSpinLock(&P->Lock, "proc", Error);
+    InitializeSpinLock(&P->Lock, "Proc", Error);
 
     /* allocate cmdline/environ buffers */
     P->CmdlineBuf = (char*)KMalloc(4096);
@@ -958,7 +1129,11 @@ __AllocProc__(void)
             KFree(P->EnvironBuf, Error);
         }
         KFree(P, Error);
-        return Error_TO_Pointer(-BadAlloc);
+        PushError("__AllocProc__",
+                  LOGPROCC_PError,
+                  "Failed to alloc cmdline/environ buffers in __AllocProc__",
+                  -BadAllocation);
+        return Error_TO_Pointer(-BadAllocation);
     }
     ATOMIC_STORE(P->CmdlineLen, 0);
     ATOMIC_STORE(P->EnvironLen, 0);
@@ -971,7 +1146,8 @@ __FreeProc__(PosixProc* __Proc__, SysErr* __Err__)
 {
     if (Probe_IF_Error(__Proc__) || !__Proc__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("__FreeProc__", LOGPROCC_PError, "Bad args to __FreeProc__", -BadArguments);
         return;
     }
 
@@ -1017,7 +1193,9 @@ __AttachThread__(PosixProc* __Proc__, Thread* __Th__)
 {
     if (Probe_IF_Error(__Proc__) || !__Proc__ || Probe_IF_Error(__Th__) || !__Th__)
     {
-        return -BadArgs;
+        PushError(
+            "__AttachThread__", LOGPROCC_PError, "Bad args to __AttachThread__", -BadArguments);
+        return -BadArguments;
     }
     __Proc__->MainThread = __Th__;
     ATOMIC_STORE(__Th__->ProcessId, (uint32_t)__Proc__->Pid);
@@ -1029,7 +1207,9 @@ __DetachThread__(PosixProc* __Proc__)
 {
     if (Probe_IF_Error(__Proc__) || !__Proc__)
     {
-        return -BadArgs;
+        PushError(
+            "__DetachThread__", LOGPROCC_PError, "Bad args to __DetachThread__", -BadArguments);
+        return -BadArguments;
     }
     Thread* Th = __Proc__->MainThread;
     if (Th)
@@ -1050,7 +1230,8 @@ __ForkCopyFds__(PosixProc* __Parent__, PosixProc* __Child__)
     if (Probe_IF_Error(__Parent__) || !__Parent__ || Probe_IF_Error(__Parent__->Fds) ||
         !__Parent__->Fds || Probe_IF_Error(__Child__) || !__Child__)
     {
-        return -BadArgs;
+        PushError("__ForkCopyFds__", LOGPROCC_PError, "Bad args to __ForkCopyFds__", -BadArguments);
+        return -BadArguments;
     }
 
     SysErr  err;
@@ -1066,13 +1247,21 @@ __ForkCopyFds__(PosixProc* __Parent__, PosixProc* __Child__)
     __Child__->Fds = (PosixFdTable*)KMalloc(sizeof(PosixFdTable));
     if (Probe_IF_Error(__Child__->Fds) || !__Child__->Fds)
     {
-        return -BadAlloc;
+        PushError("__ForkCopyFds__",
+                  LOGPROCC_PError,
+                  "Failed to alloc FdTable in __ForkCopyFds__",
+                  Pointer_TO_Error(__Child__->Fds));
+        return -BadAllocation;
     }
     if (PosixFdInit(__Child__->Fds, __Parent__->Fds->Cap) != SysOkay)
     {
         KFree(__Child__->Fds, Error);
         __Child__->Fds = NULL;
-        return -NotInit;
+        PushError("__ForkCopyFds__",
+                  LOGPROCC_PError,
+                  "Failed to init FdTable in __ForkCopyFds__",
+                  -NotInitilized);
+        return -NotInitilized;
     }
 
     /* Duplicate entries with refcounts */
@@ -1087,6 +1276,8 @@ __ForkCopyFds__(PosixProc* __Parent__, PosixProc* __Child__)
         int NewFd = __FindFreeFd__(__Child__->Fds, 0);
         if (NewFd < 0)
         {
+            PushError(
+                "__ForkCopyFds__", LOGPROCC_PError, "No free fd in __ForkCopyFds__", -TooLess);
             return -TooLess;
         }
 
@@ -1134,13 +1325,19 @@ __SetDefaultFds__(PosixProc* __Proc__)
 {
     if (Probe_IF_Error(__Proc__) || !__Proc__)
     {
-        return -BadArgs;
+        PushError(
+            "__SetDefaultFds__", LOGPROCC_PError, "Bad args to __SetDefaultFds__", -BadArguments);
+        return -BadArguments;
     }
 
     __Proc__->Fds = (PosixFdTable*)KMalloc(sizeof(PosixFdTable));
     if (Probe_IF_Error(__Proc__->Fds) || !__Proc__->Fds)
     {
-        return -BadAlloc;
+        PushError("__SetDefaultFds__",
+                  LOGPROCC_PError,
+                  "Failed to alloc FdTable in __SetDefaultFds__",
+                  Pointer_TO_Error(__Proc__->Fds));
+        return -BadAllocation;
     }
 
     if (PosixFdInit(__Proc__->Fds, MaxFdsDefault) != SysOkay)
@@ -1149,7 +1346,7 @@ __SetDefaultFds__(PosixProc* __Proc__)
         SysErr* Error = &err;
         KFree(__Proc__->Fds, Error);
         __Proc__->Fds = NULL;
-        return -NotInit;
+        return -NotInitilized;
     }
 
     const char* TtyPath  = "/dev/tty0"; /*TODO: not be hardcoded*/
@@ -1190,6 +1387,10 @@ __SetDefaultFds__(PosixProc* __Proc__)
 
     if (StdinFd < 0 || StdoutFd < 0 || StderrFd < 0)
     {
+        PushError("__SetDefaultFds__",
+                  LOGPROCC_PError,
+                  "Failed to open default fds in __SetDefaultFds__",
+                  -TooLess);
         return -TooLess;
     }
 
@@ -1235,6 +1436,8 @@ __BuildArgsEnv__(const char* const* __Argv__,
 {
     if (Probe_IF_Error(__Proc__) || !__Proc__)
     {
+        PushError(
+            "__BuildArgsEnv__", LOGPROCC_PError, "Bad args to __BuildArgsEnv__", -BadArguments);
         return -BadEntity;
     }
 
@@ -1333,14 +1536,22 @@ __ResolveExecFile__(const char* __Path__, File** __OutFile__)
 {
     if (Probe_IF_Error(__Path__) || !__Path__ || Probe_IF_Error(__OutFile__) || !__OutFile__)
     {
-        return -BadArgs;
+        PushError("__ResolveExecFile__",
+                  LOGPROCC_PError,
+                  "Bad args to __ResolveExecFile__",
+                  -BadArguments);
+        return -BadArguments;
     }
-    File* f = VfsOpen(__Path__, VFlgRDONLY);
-    if (Probe_IF_Error(f) || !f)
+    File* F = VfsOpen(__Path__, VFlgRDONLY);
+    if (Probe_IF_Error(F) || !F)
     {
+        PushError("__ResolveExecFile__",
+                  LOGPROCC_PError,
+                  "Failed to open exec file in __ResolveExecFile__",
+                  Pointer_TO_Error(F));
         return -BadEntity;
     }
-    *__OutFile__ = f;
+    *__OutFile__ = F;
     return SysOkay;
 }
 
@@ -1349,7 +1560,9 @@ __EnsureCwdRoot__(PosixProc* __Proc__)
 {
     if (Probe_IF_Error(__Proc__) || !__Proc__)
     {
-        return -BadArgs;
+        PushError(
+            "__EnsureCwdRoot__", LOGPROCC_PError, "Bad args to __EnsureCwdRoot__", -BadArguments);
+        return -BadArguments;
     }
     if (__Proc__->Cwd[0] == '\0')
     {
@@ -1367,11 +1580,38 @@ __WakeParent__(PosixProc* __Parent__, PosixProc* __Child__, SysErr* __Err__)
 {
     if (Probe_IF_Error(__Parent__) || !__Parent__ || Probe_IF_Error(__Child__) || !__Child__)
     {
-        SlotError(__Err__, -BadArgs);
+        SlotError(__Err__, -BadArguments);
+        PushError("__WakeParent__", LOGPROCC_PError, "Bad args to __WakeParent__", -BadArguments);
         return;
     }
     /* Set SIGCHLD pending on parent */
     ATOMIC_FETCH_OR(__Parent__->SigPending, (1ULL << (SigChld & 63)));
+}
+
+int
+__CopyFromUser__(char* __KrnBuf__, const char* __UserPtr__, size_t __MAX__)
+{
+    if (!__KrnBuf__ || !__UserPtr__ || __MAX__ == 0)
+    {
+        PushError("__CopyFromUser__", LOGPROCC_PError, "Bad args", -BadArguments);
+        return -BadArguments;
+    }
+
+    size_t Index = 0;
+    for (; Index < __MAX__ - 1; Index++)
+    {
+        char Char;
+        Char = __UserPtr__[Index];
+        if (Char == '\0')
+        {
+            __KrnBuf__[Index] = '\0';
+            return 0;
+        }
+        __KrnBuf__[Index] = Char;
+    }
+
+    __KrnBuf__[__MAX__ - 1] = '\0';
+    return SysOkay;
 }
 
 static int
@@ -1379,7 +1619,11 @@ __DeliverPendingSignals__(PosixProc* __Proc__)
 {
     if (Probe_IF_Error(__Proc__) || !__Proc__)
     {
-        return -BadArgs;
+        PushError("__DeliverPendingSignals__",
+                  LOGPROCC_PError,
+                  "Bad args to __DeliverPendingSignals__",
+                  -BadArguments);
+        return -BadArguments;
     }
 
     uint64_t pend = ATOMIC_LOAD(__Proc__->SigPending);
@@ -1460,4 +1704,66 @@ __DeliverPendingSignals__(PosixProc* __Proc__)
     /* delivered or ignored */
     ATOMIC_STORE(__Proc__->SigPending, 0);
     return SysOkay;
+}
+
+void
+HandleCOW(uint64_t __FaultVirt__, int ErrCode, SysErr* __Err__)
+{
+    Thread* Thrd = GetCurrentThread(GetCurrentCpuId());
+    if (Probe_IF_Error(Thrd) || !Thrd)
+    {
+        SlotError(__Err__, -NoSuch);
+        PushError("HandleCOW", LOGPROCC_PError, "No current thread", Pointer_TO_Error(Thrd));
+        return;
+    }
+    PosixProc* Proc = PosixFind((long)ATOMIC_LOAD(Thrd->ProcessId));
+    if (Probe_IF_Error(Proc) || !Proc)
+    {
+        SlotError(__Err__, -NoSuch);
+        PushError("HandleCOW", LOGPROCC_PError, "No process for thread", Pointer_TO_Error(Proc));
+        return;
+    }
+
+    uint64_t Phys = GetPhysicalAddress(Proc->Space, __FaultVirt__);
+    if (!Phys)
+    {
+        SlotError(__Err__, -NotCanonical);
+        PushError("HandleCOW", LOGPROCC_PError, "No physical address", -NotCanonical);
+        return;
+    }
+
+    if (GetPageRef(Phys) > 1)
+    {
+        uint64_t NewPhys = AllocPage();
+        if (!NewPhys)
+        {
+            SlotError(__Err__, -BadAllocation);
+            PushError("HandleCOW", LOGPROCC_PError, "Cannot allocate page", -BadAllocation);
+            return;
+        }
+
+        void* Dest = PhysToVirt(NewPhys);
+        void* Srce = PhysToVirt(Phys);
+        if (!Dest || !Srce)
+        {
+            SlotError(__Err__, -NotCanonical);
+            PushError("HandleCOW", LOGPROCC_PError, "Bad virt addr", -NotCanonical);
+            return;
+        }
+
+        memcpy(Dest, Srce, PageSize);
+
+        DecPageRef(Phys, __Err__);
+        MapPage(
+            Proc->Space, __FaultVirt__ & ~0xFFFULL, NewPhys, PTEUSER | PTEPRESENT | PTEWRITABLE);
+
+        LOGPROCC_PDebug("CoW: VA=0x%llx oldPA=0x%llx newPA=0x%llx\n",
+                        (unsigned long long)__FaultVirt__,
+                        (unsigned long long)Phys,
+                        (unsigned long long)NewPhys);
+    }
+    else
+    {
+        MapPage(Proc->Space, __FaultVirt__ & ~0xFFFULL, Phys, PTEUSER | PTEPRESENT | PTEWRITABLE);
+    }
 }
