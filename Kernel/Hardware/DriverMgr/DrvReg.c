@@ -1,3 +1,8 @@
+/*
+    Lowest layer of Device Abstraction Mgr (DAM)
+    SubPart of Registry (Higher level after KModMgr)
+*/
+
 #include <DrvMgr.h>
 #include <KHeap.h>
 #include <KrnPrintf.h>
