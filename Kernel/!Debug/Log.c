@@ -12,8 +12,9 @@ PError(const char* __Format__, ...)
     SysErr  err;
     SysErr* Error = &err;
     AcquireSpinLock(&ConsoleLock, Error);
-    uint32_t OldFG = Console.TXColor;
-    uint32_t OldBG = Console.BGColor;
+    // TODO: Rename the uint's.
+    uint32_t MainFG = Console.TXColor;
+    uint32_t MainBG = Console.BGColor;
 
     PutPrint("[");
     SetBGColor(ClrError, ClrInvisible);
@@ -39,7 +40,7 @@ PError(const char* __Format__, ...)
     }
 
     __builtin_va_end(args);
-    SetBGColor(OldFG, OldBG);
+    SetBGColor(MainFG, MainBG);
     ReleaseSpinLock(&ConsoleLock, Error);
 }
 
@@ -53,8 +54,8 @@ PWarn(const char* __Format__, ...)
     SysErr  err;
     SysErr* Error = &err;
     AcquireSpinLock(&ConsoleLock, Error);
-    uint32_t OldFG = Console.TXColor;
-    uint32_t OldBG = Console.BGColor;
+    uint32_t MainFG = Console.TXColor;
+    uint32_t MainBG = Console.BGColor;
 
     PutPrint("[");
     SetBGColor(ClrWarn, ClrInvisible);
@@ -80,7 +81,7 @@ PWarn(const char* __Format__, ...)
     }
 
     __builtin_va_end(args);
-    SetBGColor(OldFG, OldBG);
+    SetBGColor(MainFG, MainBG);
     ReleaseSpinLock(&ConsoleLock, Error);
 }
 
@@ -94,8 +95,8 @@ PInfo(const char* __Format__, ...)
     SysErr  err;
     SysErr* Error = &err;
     AcquireSpinLock(&ConsoleLock, Error);
-    uint32_t OldFG = Console.TXColor;
-    uint32_t OldBG = Console.BGColor;
+    uint32_t MainFG = Console.TXColor;
+    uint32_t MainBG = Console.BGColor;
 
     PutPrint("[");
     SetBGColor(ClrInfo, ClrInvisible);
@@ -121,7 +122,7 @@ PInfo(const char* __Format__, ...)
     }
 
     __builtin_va_end(args);
-    SetBGColor(OldFG, OldBG);
+    SetBGColor(MainFG, MainBG);
     ReleaseSpinLock(&ConsoleLock, Error);
 }
 
@@ -135,8 +136,8 @@ _PDebug(const char* __Format__, ...)
     SysErr  err;
     SysErr* Error = &err;
     AcquireSpinLock(&ConsoleLock, Error);
-    uint32_t OldFG = Console.TXColor;
-    uint32_t OldBG = Console.BGColor;
+    uint32_t MainFG = Console.TXColor;
+    uint32_t MainBG = Console.BGColor;
 
     SetBGColor(ClrDebug, ClrInvisible);
     PutPrint("[    DEBUG    ]: ");
@@ -159,7 +160,7 @@ _PDebug(const char* __Format__, ...)
     }
 
     __builtin_va_end(args);
-    SetBGColor(OldFG, OldBG);
+    SetBGColor(MainFG, MainBG);
     ReleaseSpinLock(&ConsoleLock, Error);
 }
 
@@ -173,8 +174,8 @@ PSuccess(const char* __Format__, ...)
     SysErr  err;
     SysErr* Error = &err;
     AcquireSpinLock(&ConsoleLock, Error);
-    uint32_t OldFG = Console.TXColor;
-    uint32_t OldBG = Console.BGColor;
+    uint32_t MainFG = Console.TXColor;
+    uint32_t MainBG = Console.BGColor;
 
     PutPrint("[");
     SetBGColor(ClrSuccess, ClrInvisible);
@@ -200,6 +201,6 @@ PSuccess(const char* __Format__, ...)
     }
 
     __builtin_va_end(args);
-    SetBGColor(OldFG, OldBG);
+    SetBGColor(MainFG, MainBG);
     ReleaseSpinLock(&ConsoleLock, Error);
 }
