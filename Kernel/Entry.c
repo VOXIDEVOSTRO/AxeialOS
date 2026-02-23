@@ -345,6 +345,7 @@ _start(void)
 
     for (;;)
     {
+        // Halt the system.
         __asm__("hlt");
     }
 }

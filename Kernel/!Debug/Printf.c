@@ -36,8 +36,8 @@ KrnPrintfColor(uint32_t __FG__, uint32_t __BG__, const char* __Format__, ...)
     SysErr  err;
     SysErr* Error = &err;
     AcquireSpinLock(&ConsoleLock, Error);
-    uint32_t OldFG = Console.TXColor;
-    uint32_t OldBG = Console.BGColor;
+    uint32_t MainFG = Console.TXColor;
+    uint32_t MainBG = Console.BGColor;
 
     SetBGColor(__FG__, __BG__);
 
@@ -59,7 +59,7 @@ KrnPrintfColor(uint32_t __FG__, uint32_t __BG__, const char* __Format__, ...)
     }
 
     __builtin_va_end(args);
-    SetBGColor(OldFG, OldBG);
+    SetBGColor(MainFG, MainBG);
     ReleaseSpinLock(&ConsoleLock, Error);
 }
 
